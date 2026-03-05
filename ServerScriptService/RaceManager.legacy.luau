@@ -3,19 +3,16 @@ local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
-local maps = ServerStorage:WaitForChild("ServerAssets"):WaitForChild("Maps")
+local maps = workspace:WaitForChild("RaceMaps")
 local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 
 local raceStartEvent = remoteEvents:WaitForChild("RaceStart")
 local raceEndEvent = remoteEvents:WaitForChild("RaceEnd")
 local checkpointReachedEvent = remoteEvents:WaitForChild("CheckpointReached")
 local updateRaceUIEvent = remoteEvents:WaitForChild("UpdateRaceUI")
-
--- レース開始リクエスト用RemoteEvent
-local startRaceRequestEvent = Instance.new("RemoteEvent")
-startRaceRequestEvent.Name = "StartRaceRequest"
-startRaceRequestEvent.Parent = remoteEvents
+local startRaceRequestEvent = remoteEvents:WaitForChild("StartRaceRequest")
 
 -- レース設定
 local MIN_PLAYERS = 2
@@ -111,9 +108,72 @@ local function startRace(forceStart)
     raceState.isRacing = true
     raceState.countdown = COUNTDOWN_TIME
     
+    print("[RaceManager] レース開始処理開始")
+    print("[RaceManager] 選択されたマップ: " .. raceState.currentMap.Name)
+    
+    -- マップを表示（非表示から表示に変更）
+    local currentMap = raceState.currentMap
+    local partCount = 0
+    for _, child in ipairs(currentMap:GetDescendants()) do
+        if child:IsA("BasePart") then
+            child.Transparency = 0
+            child.CanCollide = true
+            partCount = partCount + 1
+        end
+    end
+    print("[RaceManager] マップを表示しました: " .. partCount .. "個のパーツ")
+    
+    -- プレイヤーをスタート位置にテレポート
+    local startArea = currentMap:FindFirstChild("StartArea")
+    if startArea then
+        print("[RaceManager] StartArea位置: " .. tostring(startArea.Position))
+        for i, player in raceState.players do
+            -- キャラクターがロードされるのを待つ（タイムアウト付き）
+            local character = player.Character
+            if not character then
+                character = player.CharacterAdded:Wait(5)
+            end
+            
+            if not character then
+                warn("[RaceManager] プレイヤー " .. player.Name .. " のキャラクターが見つかりません")
+                continue
+            end
+            
+            -- PrimaryPartが設定されるのを待つ（タイムアウト付き）
+            if not character.PrimaryPart then
+                local timeout = 0
+                while not character.PrimaryPart and timeout < 50 do
+                    task.wait(0.1)
+                    timeout = timeout + 1
+                end
+            end
+            
+            if character and character.PrimaryPart then
+                local offset = Vector3.new((i - 1 - (#raceState.players - 1) / 2) * 5, 5, 0)
+                character:SetPrimaryPartCFrame(startArea.CFrame + offset)
+                print("[RaceManager] プレイヤー " .. player.Name .. " をスタート位置にテレポート: " .. tostring(startArea.CFrame + offset))
+            else
+                warn("[RaceManager] プレイヤー " .. player.Name .. " のPrimaryPartが見つかりません")
+            end
+        end
+    else
+        warn("[RaceManager] StartAreaが見つかりません！")
+    end
+    
+    -- 全プレイヤーにレース開始準備を通知
+    for _, player in raceState.players do
+        raceStartEvent:FireClient(player, {
+            mapName = raceState.currentMap:GetAttribute("CourseName"),
+            duration = RACE_DURATION,
+            checkpointCount = raceState.currentMap:GetAttribute("CheckpointCount"),
+            bgmName = "RaceBGM" .. math.random(1, 2) -- ランダムにBGMを選択
+        })
+    end
+    
     -- カウントダウン開始
     for countdown = COUNTDOWN_TIME, 1, -1 do
         raceState.countdown = countdown
+        print("[RaceManager] カウントダウン: " .. countdown)
         
         -- 全プレイヤーにカウントダウンを通知
         for _, player in raceState.players do
@@ -129,32 +189,7 @@ local function startRace(forceStart)
     -- レース開始
     raceState.raceStartTime = tick()
     raceState.countdown = 0
-    
-    -- マップをワークスペースに配置
-    local mapClone = raceState.currentMap:Clone()
-    mapClone.Name = "RaceMap"
-    mapClone.Parent = workspace
-    
-    -- プレイヤーをスタート位置にテレポート
-    local startArea = mapClone:FindFirstChild("StartArea")
-    if startArea then
-        for i, player in raceState.players do
-            if player.Character and player.Character.PrimaryPart then
-                local offset = Vector3.new((i - 1 - (#raceState.players - 1) / 2) * 5, 5, 0)
-                player.Character:SetPrimaryPartCFrame(startArea.CFrame + offset)
-            end
-        end
-    end
-    
-    -- 全プレイヤーにレース開始を通知
-    for _, player in raceState.players do
-        raceStartEvent:FireClient(player, {
-            mapName = raceState.currentMap:GetAttribute("CourseName"),
-            duration = RACE_DURATION,
-            checkpointCount = raceState.currentMap:GetAttribute("CheckpointCount"),
-            bgmName = "RaceBGM" .. math.random(1, 2) -- ランダムにBGMを選択
-        })
-    end
+    print("[RaceManager] レース開始！")
     
     -- タイマー開始
     task.spawn(function()
@@ -278,10 +313,14 @@ local function endRace()
         })
     end
     
-    -- マップを削除
-    local raceMap = workspace:FindFirstChild("RaceMap")
-    if raceMap then
-        raceMap:Destroy()
+    -- マップを非表示にする
+    if raceState.currentMap then
+        for _, child in ipairs(raceState.currentMap:GetDescendants()) do
+            if child:IsA("BasePart") then
+                child.Transparency = 1
+                child.CanCollide = false
+            end
+        end
     end
     
     -- プレイヤーをロビーに戻す
@@ -400,7 +439,7 @@ RunService.Heartbeat:Connect(function()
     for _, player in raceState.players do
         if player.Character and player.Character.PrimaryPart then
             local position = player.Character.PrimaryPart.Position
-            progress = raceState.playerProgress[player.UserId]
+            local progress = raceState.playerProgress[player.UserId]
             
             if progress then
                 -- 進行距離の更新
@@ -417,15 +456,88 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- 全マップのチェックポイントとゴールにイベントを設定
+local function setupAllMapEvents()
+    for _, map in ipairs(maps:GetChildren()) do
+        if map:IsA("Folder") then
+            -- チェックポイントの設定
+            local checkpointsFolder = map:FindFirstChild("Checkpoints")
+            if checkpointsFolder then
+                for _, checkpoint in ipairs(checkpointsFolder:GetChildren()) do
+                    if checkpoint:IsA("BasePart") then
+                        checkpoint.Touched:Connect(function(hit)
+                            -- レース中で、このマップが使用されている場合のみ処理
+                            if not raceState.isRacing or raceState.currentMap ~= map then
+                                return
+                            end
+                            
+                            local character = hit.Parent
+                            if not character then return end
+                            
+                            local humanoid = character:FindFirstChildOfClass("Humanoid")
+                            if humanoid then
+                                local player = Players:GetPlayerFromCharacter(character)
+                                if player then
+                                    checkCheckpoint(player, checkpoint)
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+            
+            -- ゴールエリアの設定
+            local goalArea = map:FindFirstChild("GoalArea")
+            if goalArea and goalArea:IsA("BasePart") then
+                goalArea.Touched:Connect(function(hit)
+                    -- レース中で、このマップが使用されている場合のみ処理
+                    if not raceState.isRacing or raceState.currentMap ~= map then
+                        return
+                    end
+                    
+                    local character = hit.Parent
+                    if not character then return end
+                    
+                    local humanoid = character:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        local player = Players:GetPlayerFromCharacter(character)
+                        if player then
+                            checkGoal(player, goalArea)
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end
+
+-- 初期化時に全マップのイベントを設定
+setupAllMapEvents()
+
 -- レース開始リクエストの処理
 startRaceRequestEvent.OnServerEvent:Connect(function(player)
+    print("[RaceManager] レース開始リクエストを受信: " .. player.Name)
+    
     -- 最初のリクエストのみを受け付ける（スパム防止）
     if raceState.isRacing then
+        print("[RaceManager] 既にレース中です")
+        updateRaceUIEvent:FireClient(player, {
+            type = "error",
+            message = "既にレース中です"
+        })
         return
     end
     
-    local success, message = startRace()
-    if not success then
+    -- プレイヤー数が足りない場合は強制開始フラグを設定
+    local playerCount = #Players:GetPlayers()
+    print("[RaceManager] プレイヤー数: " .. playerCount)
+    local forceStart = playerCount < MIN_PLAYERS
+    
+    local success, message = startRace(forceStart)
+    if success then
+        print("[RaceManager] レース開始成功: " .. message)
+    else
+        print("[RaceManager] レース開始失敗: " .. message)
         -- エラーメッセージをプレイヤーに通知
         updateRaceUIEvent:FireClient(player, {
             type = "error",
