@@ -142,9 +142,15 @@ local function startRace(forceStart)
             -- PrimaryPartが設定されるのを待つ（タイムアウト付き）
             if not character.PrimaryPart then
                 local timeout = 0
-                while not character.PrimaryPart and timeout < 50 do
+                while not character.PrimaryPart and timeout < 100 do
                     task.wait(0.1)
                     timeout = timeout + 1
+                    -- HumanoidRootPartをPrimaryPartとして設定
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    if hrp and not character.PrimaryPart then
+                        character.PrimaryPart = hrp
+                        print("[RaceManager] HumanoidRootPartをPrimaryPartとして設定しました: " .. player.Name)
+                    end
                 end
             end
             
