@@ -52,7 +52,21 @@ local function onPlayerAdded(player)
             local spawnIndex = (player.UserId % 12) + 1
             local spawnLocation = spawnLocations:FindFirstChild("Spawn" .. spawnIndex)
             if spawnLocation then
-                character:SetPrimaryPartCFrame(spawnLocation.CFrame + Vector3.new(0, 5, 0))
+                -- PrimaryPartが設定されるまで待機
+                if not character.PrimaryPart then
+                    local timeout = 0
+                    while not character.PrimaryPart and timeout < 50 do
+                        task.wait(0.1)
+                        timeout = timeout + 1
+                    end
+                end
+                
+                if character.PrimaryPart then
+                    character:SetPrimaryPartCFrame(spawnLocation.CFrame + Vector3.new(0, 5, 0))
+                    print("[MarbleSpawner] プレイヤー " .. player.Name .. " をロビースポーン位置に設定しました")
+                else
+                    warn("[MarbleSpawner] プレイヤー " .. player.Name .. " のPrimaryPartが設定されていません")
+                end
             end
         end
     end)

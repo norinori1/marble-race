@@ -131,7 +131,7 @@ local function startRace(forceStart)
             -- キャラクターがロードされるのを待つ（タイムアウト付き）
             local character = player.Character
             if not character then
-                character = player.CharacterAdded:Wait(5)
+                character = player.CharacterAdded:Wait()
             end
             
             if not character then
@@ -139,22 +139,28 @@ local function startRace(forceStart)
                 continue
             end
             
-            -- PrimaryPartが設定されるのを待つ（タイムアウト付き）
+            -- HumanoidRootPartが存在するまで待つ
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if not hrp then
+                hrp = character:WaitForChild("HumanoidRootPart", 10)
+            end
+            
+            -- PrimaryPartが設定されるまで待つ
             if not character.PrimaryPart then
                 local timeout = 0
                 while not character.PrimaryPart and timeout < 100 do
                     task.wait(0.1)
                     timeout = timeout + 1
-                    -- HumanoidRootPartをPrimaryPartとして設定
-                    local hrp = character:FindFirstChild("HumanoidRootPart")
-                    if hrp and not character.PrimaryPart then
-                        character.PrimaryPart = hrp
-                        print("[RaceManager] HumanoidRootPartをPrimaryPartとして設定しました: " .. player.Name)
-                    end
+                end
+                
+                -- まだPrimaryPartが設定されていない場合は手動設定
+                if not character.PrimaryPart and hrp then
+                    character.PrimaryPart = hrp
+                    print("[RaceManager] プレイヤー " .. player.Name .. " のPrimaryPartを手動で設定しました")
                 end
             end
             
-            if character and character.PrimaryPart then
+            if character and character.PrimaryPart and hrp then
                 local offset = Vector3.new((i - 1 - (#raceState.players - 1) / 2) * 5, 5, 0)
                 character:SetPrimaryPartCFrame(startArea.CFrame + offset)
                 print("[RaceManager] プレイヤー " .. player.Name .. " をスタート位置にテレポート: " .. tostring(startArea.CFrame + offset))
@@ -162,6 +168,10 @@ local function startRace(forceStart)
                 warn("[RaceManager] プレイヤー " .. player.Name .. " のPrimaryPartが見つかりません")
             end
         end
+        
+        -- キャラクター初期化が完全に完了するまで待機
+        -- （サーバーとクライアント間のネットワーク遅延を考慮）
+        task.wait(2)
     else
         warn("[RaceManager] StartAreaが見つかりません！")
     end
@@ -176,8 +186,8 @@ local function startRace(forceStart)
         })
     end
     
-    -- カウントダウン開始
-    for countdown = COUNTDOWN_TIME, 1, -1 do
+    -- カウントダウン開始（0から始まる）
+    for countdown = COUNTDOWN_TIME, 0, -1 do
         raceState.countdown = countdown
         print("[RaceManager] カウントダウン: " .. countdown)
         
@@ -196,6 +206,14 @@ local function startRace(forceStart)
     raceState.raceStartTime = tick()
     raceState.countdown = 0
     print("[RaceManager] レース開始！")
+    
+    -- 全プレイヤーにレース開始を通知
+    for _, player in raceState.players do
+        updateRaceUIEvent:FireClient(player, {
+            type = "race_started",
+            value = 0
+        })
+    end
     
     -- タイマー開始
     task.spawn(function()

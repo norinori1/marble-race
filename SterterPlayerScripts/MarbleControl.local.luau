@@ -6,22 +6,63 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 
--- HumanoidRootPartをマブルとして使用（タイムアウト付き）
-local marble = character:FindFirstChild("HumanoidRootPart")
-if not marble then
-    marble = character:WaitForChild("HumanoidRootPart", 10)
-end
+-- キャラクターが完全にロードされるまで待機
+task.wait(0.5)
 
-local hrp = marble
-local humanoid = character:FindFirstChildOfClass("Humanoid")
-if not humanoid then
-    humanoid = character:WaitForChildOfClass("Humanoid", 10)
+-- キャラクター初期化の待機（複数回試行）
+local marble = nil
+local humanoid = nil
+local initAttempts = 0
+local maxInitAttempts = 30
+
+while (not marble or not humanoid) and initAttempts < maxInitAttempts do
+    initAttempts = initAttempts + 1
+    
+    -- HumanoidRootPartをマブルとして使用
+    if not marble then
+        marble = character:FindFirstChild("HumanoidRootPart")
+        if not marble then
+            marble = character:WaitForChild("HumanoidRootPart", 2)
+        end
+    end
+    
+    -- Humanoidを取得
+    if not humanoid then
+        humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then
+            humanoid = character:WaitForChildOfClass("Humanoid", 2)
+        end
+    end
+    
+    -- まだ初期化されていない場合は待機
+    if not marble or not humanoid then
+        task.wait(0.5)
+    end
 end
 
 if not marble or not humanoid then
-    warn("[MarbleControl] キャラクターの初期化に失敗しました")
+    warn("[MarbleControl] キャラクターの初期化に失敗しました（試行: " .. initAttempts .. "回）")
+    print("[MarbleControl] marble:", marble, "humanoid:", humanoid)
+    print("[MarbleControl] character:", character)
+    if character then
+        local childNames = {}
+        for _, child in character:GetChildren() do
+            table.insert(childNames, child.Name)
+        end
+        print("[MarbleControl] character children:", table.concat(childNames, ", "))
+    end
     return
 end
+
+print("[MarbleControl] キャラクターの初期化に成功しました（試行: " .. initAttempts .. "回）")
+if marble then
+    print("[MarbleControl] HumanoidRootPart size:", marble.Size)
+end
+if humanoid then
+    print("[MarbleControl] Humanoid health:", humanoid.Health)
+end
+
+local hrp = marble
 
 -- マブルの設定（調整済み）
 local MARBLE_SPEED = 100

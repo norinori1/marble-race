@@ -52,11 +52,16 @@ if hrp then
     -- PrimaryPartを設定（重要！）
     character.PrimaryPart = hrp
     
+    -- 設定が反映されたか確認
+    if character.PrimaryPart ~= hrp then
+        warn("[CharacterSetup] PrimaryPartの設定に失敗しました")
+    end
+    
     -- HumanoidRootPartをアンチャー解除（移動可能にする）
     hrp.Anchored = false
     
     print("[CharacterSetup] マブルキャラクターを設定しました: " .. (player and player.Name or "Unknown") .. " (色: " .. colorIndex .. ")")
-    print("[CharacterSetup] PrimaryPartを設定しました: " .. hrp.Name)
+    print("[CharacterSetup] PrimaryPartを設定しました: " .. hrp.Name .. " (確認: " .. tostring(character.PrimaryPart == hrp) .. ")")
     print("[CharacterSetup] HumanoidRootPartをアンチャー解除しました")
 end
 
@@ -77,6 +82,7 @@ if humanoid then
     humanoid.WalkSpeed = 0 -- マブルなのでWalkSpeedは使用しない
     humanoid.JumpPower = 0 -- マブルなのでJumpPowerは使用しない
     humanoid.PlatformStand = true -- マブルなので立たせない
+    print("[CharacterSetup] Humanoidを設定しました: MaxHealth=" .. humanoid.MaxHealth)
 end
 
-print("[CharacterSetup] マブルキャラクターを設定しました")
+print("[CharacterSetup] マブルキャラクターの初期化が完了しました: " .. (player and player.Name or "Unknown"))

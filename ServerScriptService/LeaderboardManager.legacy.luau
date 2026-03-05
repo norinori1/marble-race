@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local leaderboardDataStore = DataStoreService:GetDataStore("MarbleRaceLeaderboard")
 

@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local soundsFolder = ReplicatedStorage:WaitForChild("SharedAssets"):WaitForChild("Sounds")
@@ -9,6 +10,7 @@ local soundsFolder = ReplicatedStorage:WaitForChild("SharedAssets"):WaitForChild
 -- サウンドのキャッシュ
 local soundCache = {}
 local currentBGM = nil
+local currentFadeTween = nil
 
 -- サウンドを取得または作成
 local function getSound(soundName)
@@ -33,34 +35,50 @@ end
 local function playBGM(bgmName, fadeInTime)
     -- 現在のBGMを停止
     if currentBGM then
-        if fadeInTime then
-            currentBGM:FadeOut(fadeInTime)
-            task.wait(fadeInTime)
-        else
-            currentBGM:Stop()
+        if currentFadeTween then
+            currentFadeTween:Cancel()
         end
+        if fadeInTime then
+            currentFadeTween = TweenService:Create(currentBGM, TweenInfo.new(fadeInTime), {
+                Volume = 0
+            })
+            currentFadeTween:Play()
+            currentFadeTween.Completed:Wait()
+        end
+        currentBGM:Stop()
     end
     
     -- 新しいBGMを再生
     local bgm = getSound(bgmName)
     if bgm then
         currentBGM = bgm
-        if fadeInTime then
-            bgm:FadeIn(fadeInTime)
-        end
+        bgm.Volume = 0
         bgm:Play()
+        if fadeInTime then
+            currentFadeTween = TweenService:Create(bgm, TweenInfo.new(fadeInTime), {
+                Volume = 1
+            })
+            currentFadeTween:Play()
+        else
+            bgm.Volume = 1
+        end
     end
 end
 
 -- BGMを停止
 local function stopBGM(fadeOutTime)
     if currentBGM then
-        if fadeOutTime then
-            currentBGM:FadeOut(fadeOutTime)
-            task.wait(fadeOutTime)
-        else
-            currentBGM:Stop()
+        if currentFadeTween then
+            currentFadeTween:Cancel()
         end
+        if fadeOutTime then
+            currentFadeTween = TweenService:Create(currentBGM, TweenInfo.new(fadeOutTime), {
+                Volume = 0
+            })
+            currentFadeTween:Play()
+            currentFadeTween.Completed:Wait()
+        end
+        currentBGM:Stop()
         currentBGM = nil
     end
 end
