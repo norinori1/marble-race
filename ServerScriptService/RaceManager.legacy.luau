@@ -49,25 +49,44 @@ local function initializePlayerProgress(player)
 end
 
 -- レース開始の準備
-local function prepareRace()
+local function prepareRace(forceStart)
+    forceStart = forceStart or false
+    
     if raceState.isRacing then
         return false, "レース中です"
     end
     
     local playerCount = #Players:GetPlayers()
-    if playerCount < MIN_PLAYERS then
-        return false, "プレイヤーが足りません（最低" .. MIN_PLAYERS .. "人必要）"
+    
+    -- 強制開始の場合はプレイヤー数チェックをスキップ
+    if not forceStart then
+        if playerCount < MIN_PLAYERS then
+            return false, "プレイヤーが足りません（最低" .. MIN_PLAYERS .. "人必要）"
+        end
+    end
+    
+    if playerCount < 1 then
+        return false, "プレイヤーがいません"
     end
     
     if playerCount > MAX_PLAYERS then
         return false, "プレイヤーが多すぎます（最大" .. MAX_PLAYERS .. "人まで）"
     end
     
-    -- マップの選択（初期はBeginner Slopeのみ）
-    local selectedMap = maps:FindFirstChild("BeginnerSlope")
-    if not selectedMap then
+    -- 利用可能なマップを取得
+    local availableMaps = {}
+    for _, map in maps:GetChildren() do
+        if map:IsA("Folder") then
+            table.insert(availableMaps, map)
+        end
+    end
+    
+    if #availableMaps == 0 then
         return false, "マップが見つかりません"
     end
+    
+    -- ランダムにマップを選択
+    local selectedMap = availableMaps[math.random(1, #availableMaps)]
     
     raceState.currentMap = selectedMap
     raceState.players = Players:GetPlayers()
@@ -77,12 +96,14 @@ local function prepareRace()
         initializePlayerProgress(player)
     end
     
-    return true, "レース準備完了"
+    return true, "レース準備完了: " .. selectedMap:GetAttribute("CourseName")
 end
 
 -- レース開始
-local function startRace()
-    local success, message = prepareRace()
+local function startRace(forceStart)
+    forceStart = forceStart or false
+    
+    local success, message = prepareRace(forceStart)
     if not success then
         return false, message
     end
@@ -130,7 +151,8 @@ local function startRace()
         raceStartEvent:FireClient(player, {
             mapName = raceState.currentMap:GetAttribute("CourseName"),
             duration = RACE_DURATION,
-            checkpointCount = raceState.currentMap:GetAttribute("CheckpointCount")
+            checkpointCount = raceState.currentMap:GetAttribute("CheckpointCount"),
+            bgmName = "RaceBGM" .. math.random(1, 2) -- ランダムにBGMを選択
         })
     end
     
@@ -220,6 +242,34 @@ local function endRace()
     -- 全プレイヤーに結果を通知
     for _, player in raceState.players do
         local playerReward = rewards[player.UserId]
+        
+        -- 報酬を配布
+        if _G.updatePlayerData then
+            _G.updatePlayerData(player, {
+                coins = (_G.getPlayerData(player).coins or 0) + playerReward.coins,
+                totalRaces = (_G.getPlayerData(player).totalRaces or 0) + 1
+            })
+            
+            -- XPを追加
+            if _G.addXP then
+                _G.addXP(player, playerReward.xp)
+            end
+            
+            -- 勝利数を更新
+            if playerReward.rank == 1 then
+                _G.updatePlayerData(player, {
+                    totalWins = (_G.getPlayerData(player).totalWins or 0) + 1
+                })
+            end
+        end
+        
+        -- リーダーボードに記録
+        if _G.recordRaceResult then
+            local playerProgress = raceState.playerProgress[player.UserId]
+            local finishTime = playerProgress and playerProgress.finishTime or 0
+            _G.recordRaceResult(player, playerReward.rank, finishTime, playerReward.coins)
+        end
+        
         raceEndEvent:FireClient(player, {
             rank = playerReward.rank,
             coins = playerReward.coins,
@@ -367,8 +417,24 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- レース開始リクエストの処理
+startRaceRequestEvent.OnServerEvent:Connect(function(player)
+    -- 最初のリクエストのみを受け付ける（スパム防止）
+    if raceState.isRacing then
+        return
+    end
+    
+    local success, message = startRace()
+    if not success then
+        -- エラーメッセージをプレイヤーに通知
+        updateRaceUIEvent:FireClient(player, {
+            type = "error",
+            message = message
+        })
+    end
+end)
+
 -- テスト用：レース開始コマンド
--- 実際にはUIボタンなどから呼び出す
 _G.startRace = startRace
 _G.endRace = endRace
 

@@ -10,22 +10,8 @@ local spawnLocations = lobbyFolder:WaitForChild("SpawnLocations")
 -- デフォルトスキン
 local DEFAULT_SKIN = "RedMarble"
 
--- プレイヤーデータの初期化
-local playerData = {}
-
 -- プレイヤーが参加したときの処理
 local function onPlayerAdded(player)
-    -- プレイヤーデータの初期化
-    playerData[player.UserId] = {
-        coins = 0,
-        level = 1,
-        xp = 0,
-        ownedSkins = {DEFAULT_SKIN},
-        equippedSkin = DEFAULT_SKIN,
-        totalWins = 0,
-        totalRaces = 0
-    }
-    
     -- キャラクターがロードされたときの処理
     player.CharacterAdded:Connect(function(character)
         -- 既存のキャラクターをクリア
@@ -35,9 +21,13 @@ local function onPlayerAdded(player)
             end
         end
         
-        -- プレイヤーデータの取得
-        local data = playerData[player.UserId]
-        local skinName = data.equippedSkin or DEFAULT_SKIN
+        -- プレイヤーデータの取得（DataManagerから）
+        local data = _G.getPlayerData and _G.getPlayerData(player)
+        local skinName = DEFAULT_SKIN
+        
+        if data and data.equippedSkin then
+            skinName = data.equippedSkin
+        end
         
         -- マブルテンプレートの取得
         local marbleTemplate = marbleTemplates:FindFirstChild(skinName)
@@ -76,23 +66,14 @@ end
 -- 新しいプレイヤーを監視
 Players.PlayerAdded:Connect(onPlayerAdded)
 
--- プレイヤーが退出したときの処理
-Players.PlayerRemoving:Connect(function(player)
-    playerData[player.UserId] = nil
-end)
-
 -- RemoteFunction: プレイヤーデータの取得
 local getPlayerData = ReplicatedStorage:WaitForChild("RemoteFunctions"):WaitForChild("GetPlayerData")
 getPlayerData.OnServerInvoke = function(player)
-    return playerData[player.UserId]
+    return _G.getPlayerData and _G.getPlayerData(player) or nil
 end
 
 -- RemoteFunction: プレイヤーデータの保存
 local savePlayerData = ReplicatedStorage:WaitForChild("RemoteFunctions"):WaitForChild("SavePlayerData")
 savePlayerData.OnServerInvoke = function(player, data)
-    if playerData[player.UserId] then
-        playerData[player.UserId] = data
-        return true
-    end
-    return false
+    return _G.updatePlayerData and _G.updatePlayerData(player, data)
 end
