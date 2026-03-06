@@ -67,7 +67,8 @@ local function attachEffectToMarble(effectName, duration)
         return
     end
     
-    local marble = character:FindFirstChild("Marble")
+    -- HumanoidRootPartをマブルとして使用
+    local marble = character:FindFirstChild("HumanoidRootPart")
     if not marble then
         return
     end
@@ -77,7 +78,7 @@ local function attachEffectToMarble(effectName, duration)
         return
     end
     
-    -- エフェクトをマーブルにアタッチ
+    -- エフェクトをマブルにアタッチ
     local emitter = effect:Clone()
     emitter.Parent = marble
     emitter.Enabled = true

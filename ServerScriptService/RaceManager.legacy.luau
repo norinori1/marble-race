@@ -111,67 +111,34 @@ local function startRace(forceStart)
     print("[RaceManager] レース開始処理開始")
     print("[RaceManager] 選択されたマップ: " .. raceState.currentMap.Name)
     
-    -- マップを表示（非表示から表示に変更）
     local currentMap = raceState.currentMap
-    local partCount = 0
-    for _, child in ipairs(currentMap:GetDescendants()) do
-        if child:IsA("BasePart") then
-            child.Transparency = 0
-            child.CanCollide = true
-            partCount = partCount + 1
-        end
-    end
-    print("[RaceManager] マップを表示しました: " .. partCount .. "個のパーツ")
     
-    -- プレイヤーをスタート位置にテレポート
+    -- 1. カウントダウンの前にプレイヤーをスタート位置にテレポート
     local startArea = currentMap:FindFirstChild("StartArea")
     if startArea then
         print("[RaceManager] StartArea位置: " .. tostring(startArea.Position))
         for i, player in raceState.players do
-            -- キャラクターがロードされるのを待つ（タイムアウト付き）
             local character = player.Character
-            if not character then
-                character = player.CharacterAdded:Wait()
-            end
+            if not character then character = player.CharacterAdded:Wait() end
             
-            if not character then
-                warn("[RaceManager] プレイヤー " .. player.Name .. " のキャラクターが見つかりません")
-                continue
-            end
-            
-            -- HumanoidRootPartが存在するまで待つ
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if not hrp then
-                hrp = character:WaitForChild("HumanoidRootPart", 10)
-            end
-            
-            -- PrimaryPartが設定されるまで待つ
-            if not character.PrimaryPart then
-                local timeout = 0
-                while not character.PrimaryPart and timeout < 100 do
-                    task.wait(0.1)
-                    timeout = timeout + 1
-                end
-                
-                -- まだPrimaryPartが設定されていない場合は手動設定
-                if not character.PrimaryPart and hrp then
-                    character.PrimaryPart = hrp
-                    print("[RaceManager] プレイヤー " .. player.Name .. " のPrimaryPartを手動で設定しました")
-                end
-            end
-            
-            if character and character.PrimaryPart and hrp then
+            local hrp = character:WaitForChild("HumanoidRootPart", 10)
+            if hrp then
+                -- スタート地点に整列
                 local offset = Vector3.new((i - 1 - (#raceState.players - 1) / 2) * 5, 5, 0)
-                character:SetPrimaryPartCFrame(startArea.CFrame + offset)
-                print("[RaceManager] プレイヤー " .. player.Name .. " をスタート位置にテレポート: " .. tostring(startArea.CFrame + offset))
-            else
-                warn("[RaceManager] プレイヤー " .. player.Name .. " のPrimaryPartが見つかりません")
+                
+                -- テレポート時に物理演算を無効化して安全に移動
+                hrp.Anchored = true
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                character:PivotTo(startArea.CFrame * CFrame.new(offset))
+                
+                -- 位置が確定してから物理演算を再度有効化
+                task.wait(0.1)
+                
+                -- レース開始時に同時にアンカーを解除
+                player:SetAttribute("ReadyToRace", true)
             end
         end
-        
-        -- キャラクター初期化が完全に完了するまで待機
-        -- （サーバーとクライアント間のネットワーク遅延を考慮）
-        task.wait(2)
     else
         warn("[RaceManager] StartAreaが見つかりません！")
     end
@@ -182,30 +149,57 @@ local function startRace(forceStart)
             mapName = raceState.currentMap:GetAttribute("CourseName"),
             duration = RACE_DURATION,
             checkpointCount = raceState.currentMap:GetAttribute("CheckpointCount"),
-            bgmName = "RaceBGM" .. math.random(1, 2) -- ランダムにBGMを選択
+            bgmName = "RaceBGM" .. math.random(1, 2)
         })
     end
     
-    -- カウントダウン開始（0から始まる）
+    -- カウントダウン開始
     for countdown = COUNTDOWN_TIME, 0, -1 do
         raceState.countdown = countdown
-        print("[RaceManager] カウントダウン: " .. countdown)
-        
-        -- 全プレイヤーにカウントダウンを通知
         for _, player in raceState.players do
             updateRaceUIEvent:FireClient(player, {
                 type = "countdown",
                 value = countdown
             })
         end
-        
         task.wait(1)
     end
+    
+    -- カウントダウン終了時：位置とアンカー状態を最終チェック
+    task.wait(0.1)  -- わずかな遅延でサーバー状態を安定化
     
     -- レース開始
     raceState.raceStartTime = tick()
     raceState.countdown = 0
     print("[RaceManager] レース開始！")
+    
+    -- すべてのプレイヤーのHRPアンカーを同時に解除
+    for _, player in raceState.players do
+        local character = player.Character
+        if character then
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                if hrp.Anchored then
+                    hrp.Anchored = false
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    print("[RaceManager] プレイヤー " .. player.Name .. " のアンカーを解除しました")
+                end
+                
+                -- 位置が正常か確認（スタートエリア内か）
+                local startArea = currentMap:FindFirstChild("StartArea")
+                if startArea then
+                    local distance = (hrp.Position - startArea.Position).Magnitude
+                    print("[RaceManager] プレイヤー " .. player.Name .. " とStartAreaの距離: " .. string.format("%.2f", distance) .. "m")
+                    if distance > 50 then
+                        warn("[RaceManager] プレイヤー " .. player.Name .. " がスタートエリアから遠い！位置を再設定します")
+                        local offset = Vector3.new((math.random() - 0.5) * 10, 5, (math.random() - 0.5) * 10)
+                        character:PivotTo(startArea.CFrame * CFrame.new(offset))
+                    end
+                end
+            end
+        end
+    end
     
     -- 全プレイヤーにレース開始を通知
     for _, player in raceState.players do
@@ -337,15 +331,7 @@ local function endRace()
         })
     end
     
-    -- マップを非表示にする
-    if raceState.currentMap then
-        for _, child in ipairs(raceState.currentMap:GetDescendants()) do
-            if child:IsA("BasePart") then
-                child.Transparency = 1
-                child.CanCollide = false
-            end
-        end
-    end
+    -- マップは常に表示状態のまま
     
     -- プレイヤーをロビーに戻す
     local lobbyFolder = workspace:FindFirstChild("Lobby")

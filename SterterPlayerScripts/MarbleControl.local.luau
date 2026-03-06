@@ -9,20 +9,54 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- キャラクターが完全にロードされるまで待機
 task.wait(0.5)
 
+-- レース状態の追跡
+local isRacing = false
+
+-- レース開始イベントを監視
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local updateRaceUIEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("UpdateRaceUI")
+
+updateRaceUIEvent.OnClientEvent:Connect(function(data)
+    -- カウントダウン0またはrace_startedで操作を有効化
+    if (data.type == "countdown" and data.value == 0) or data.type == "race_started" then
+        if not isRacing then
+            isRacing = true
+            print("[MarbleControl] レース開始！操作を有効にします")
+            
+            -- 位置とHP確認用ログ
+            if hrp then
+                print("[MarbleControl] マーブル位置: " .. tostring(hrp.Position))
+                print("[MarbleControl] マーブルアンカー状態: " .. tostring(hrp.Anchored))
+                print("[MarbleControl] マーブルサイズ: " .. tostring(hrp.Size))
+            end
+            if humanoid then
+                print("[MarbleControl] マーブルHP: " .. tostring(humanoid.Health))
+            end
+        end
+    end
+end)
+
+-- レース終了イベントを監視
+local raceEndEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("RaceEnd")
+raceEndEvent.OnClientEvent:Connect(function(data)
+    isRacing = false
+    print("[MarbleControl] レース終了！操作を無効にします")
+end)
+
 -- キャラクター初期化の待機（複数回試行）
-local marble = nil
+local hrp = nil
 local humanoid = nil
 local initAttempts = 0
 local maxInitAttempts = 30
 
-while (not marble or not humanoid) and initAttempts < maxInitAttempts do
+while (not hrp or not humanoid) and initAttempts < maxInitAttempts do
     initAttempts = initAttempts + 1
     
     -- HumanoidRootPartをマブルとして使用
-    if not marble then
-        marble = character:FindFirstChild("HumanoidRootPart")
-        if not marble then
-            marble = character:WaitForChild("HumanoidRootPart", 2)
+    if not hrp then
+        hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            hrp = character:WaitForChild("HumanoidRootPart", 2)
         end
     end
     
@@ -35,14 +69,14 @@ while (not marble or not humanoid) and initAttempts < maxInitAttempts do
     end
     
     -- まだ初期化されていない場合は待機
-    if not marble or not humanoid then
+    if not hrp or not humanoid then
         task.wait(0.5)
     end
 end
 
-if not marble or not humanoid then
+if not hrp or not humanoid then
     warn("[MarbleControl] キャラクターの初期化に失敗しました（試行: " .. initAttempts .. "回）")
-    print("[MarbleControl] marble:", marble, "humanoid:", humanoid)
+    print("[MarbleControl] hrp:", hrp, "humanoid:", humanoid)
     print("[MarbleControl] character:", character)
     if character then
         local childNames = {}
@@ -55,14 +89,12 @@ if not marble or not humanoid then
 end
 
 print("[MarbleControl] キャラクターの初期化に成功しました（試行: " .. initAttempts .. "回）")
-if marble then
-    print("[MarbleControl] HumanoidRootPart size:", marble.Size)
+if hrp then
+    print("[MarbleControl] HumanoidRootPart size:", hrp.Size)
 end
 if humanoid then
     print("[MarbleControl] Humanoid health:", humanoid.Health)
 end
-
-local hrp = marble
 
 -- マブルの設定（調整済み）
 local MARBLE_SPEED = 100
@@ -124,7 +156,14 @@ end)
 
 -- メイン更新ループ
 RunService.Heartbeat:Connect(function(deltaTime)
-    if not marble or not hrp then return end
+    if not hrp then return end
+    
+    -- レース中のみ操作を有効にする
+    if not isRacing then
+        -- レース中でない場合は速度をゼロにする
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        return
+    end
     
     -- 入力の取得
     moveInput = getMoveInput()
@@ -155,14 +194,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
     
     -- ジャンプ処理
     if isJumping then
-        local rayOrigin = marble.Position
+        local rayOrigin = hrp.Position
         local rayDirection = Vector3.new(0, -1, 0)
         local raycastParams = RaycastParams.new()
         raycastParams.FilterDescendantsInstances = {character}
         raycastParams.FilterType = Enum.RaycastFilterType.Exclude
         
         -- マブルの半径を考慮してレイキャストの距離を調整
-        local marbleRadius = marble.Size.Y / 2
+        local marbleRadius = hrp.Size.Y / 2
         local rayResult = workspace:Raycast(rayOrigin, rayDirection * (marbleRadius + 0.5), raycastParams)
         
         if rayResult then
@@ -213,10 +252,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
     
     -- 速度を適用
     hrp.AssemblyLinearVelocity = currentVelocity
-    
-    -- カメラの追従
-    local targetCFrame = CFrame.new(hrp.Position + cameraOffset, hrp.Position)
-    camera.CFrame = camera.CFrame:Lerp(targetCFrame, cameraSmoothness)
 end)
 
 -- キャラクターがリスポーンしたときの処理
@@ -224,19 +259,17 @@ player.CharacterAdded:Connect(function(newCharacter)
     character = newCharacter
     
     -- HumanoidRootPartをマブルとして使用（タイムアウト付き）
-    marble = character:FindFirstChild("HumanoidRootPart")
-    if not marble then
-        marble = character:WaitForChild("HumanoidRootPart", 10)
+    hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        hrp = character:WaitForChild("HumanoidRootPart", 10)
     end
-    
-    hrp = marble
     
     humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then
         humanoid = character:WaitForChildOfClass("Humanoid", 10)
     end
     
-    if not marble or not humanoid then
+    if not hrp or not humanoid then
         warn("[MarbleControl] キャラクターのリスポーンに失敗しました")
         return
     end

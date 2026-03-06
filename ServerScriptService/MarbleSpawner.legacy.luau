@@ -16,7 +16,7 @@ local function onPlayerAdded(player)
     player.CharacterAdded:Connect(function(character)
         -- 既存のキャラクターをクリア
         for _, child in character:GetChildren() do
-            if child.Name ~= "Humanoid" then
+            if child.Name ~= "Humanoid" and child.Name ~= "HumanoidRootPart" then
                 child:Destroy()
             end
         end
@@ -38,14 +38,29 @@ local function onPlayerAdded(player)
         if marbleTemplate then
             -- マブルをクローンしてキャラクターに追加
             local marble = marbleTemplate:Clone()
-            marble.Name = "Marble"
+            marble.Name = "MarbleModel"
             marble.Parent = character
             
-            -- HumanoidRootPartの設定
+            -- キャラクターのHumanoidRootPartをマブルとして表示
             local hrp = character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                hrp.Transparency = 1
-                hrp.CanCollide = false
+                hrp.Transparency = 0
+                hrp.CanCollide = true
+                hrp.Size = Vector3.new(3, 3, 3) -- マブルと同じサイズに
+                hrp.Shape = Enum.PartType.Ball -- ボール形状に
+            end
+            
+            -- マブルモデル内のパーツも表示
+            local marblePart = marble:FindFirstChild("Marble")
+            if marblePart then
+                marblePart.Transparency = 0
+                marblePart.CanCollide = true
+            end
+            
+            local marbleHrp = marble:FindFirstChild("HumanoidRootPart")
+            if marbleHrp then
+                marbleHrp.Transparency = 0
+                marbleHrp.CanCollide = true
             end
             
             -- マブルの位置をスポーン位置に設定
