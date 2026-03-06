@@ -12,8 +12,8 @@ local DEFAULT_SKIN = "RedMarble"
 
 -- プレイヤーが参加したときの処理
 local function onPlayerAdded(player)
-    -- キャラクターがロードされたときの処理
-    player.CharacterAdded:Connect(function(character)
+    -- 共通処理を関数化して、既に存在するCharacterにも対応する
+    local function handleCharacter(character)
         -- 不要な装飾品やデフォルトの部位をクリア
         for _, child in character:GetChildren() do
             if child:IsA("Accessory") or child:IsA("Clothing") or child:IsA("ShirtGraphic") or child:IsA("CharacterMesh") then
@@ -29,17 +29,34 @@ local function onPlayerAdded(player)
             skinName = data.equippedSkin
         end
         
-        -- マブルテンプレートの取得
+        -- マブルテンプレートの取得（見つからない場合はフォールバックで生成）
         local marbleTemplate = marbleTemplates:FindFirstChild(skinName)
         if not marbleTemplate then
             marbleTemplate = marbleTemplates:FindFirstChild(DEFAULT_SKIN)
         end
-        
+
+        local marble = nil
         if marbleTemplate then
-            -- マブルをクローンしてキャラクターに追加
-            local marble = marbleTemplate:Clone()
+            marble = marbleTemplate:Clone()
             marble.Name = "MarbleModel"
             print("[MarbleSpawner] クローンしたマーブルテンプレート: " .. tostring(marbleTemplate.Name) .. " -> MarbleModel")
+        else
+            -- テンプレートが見つからない場合、単純な球体モデルを作成して表示を保証する
+            print("[MarbleSpawner] 警告: マーブルテンプレートが見つかりません。フォールバックモデルを作成します")
+            marble = Instance.new("Model")
+            marble.Name = "MarbleModel"
+            local fallbackPart = Instance.new("Part")
+            fallbackPart.Name = "Marble"
+            fallbackPart.Size = Vector3.new(4, 4, 4)
+            fallbackPart.Shape = Enum.PartType.Ball
+            fallbackPart.Anchored = false
+            fallbackPart.CanCollide = false
+            fallbackPart.Massless = true
+            fallbackPart.Material = Enum.Material.SmoothPlastic
+            fallbackPart.Color = Color3.fromRGB(200, 50, 50)
+            fallbackPart.Parent = marble
+            marble.PrimaryPart = fallbackPart
+        end
             
             -- まずCFrameを合わせる
             local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -129,7 +146,17 @@ local function onPlayerAdded(player)
                 end
             end
         end
+    end
+
+    -- CharacterAdded に接続
+    player.CharacterAdded:Connect(function(character)
+        handleCharacter(character)
     end)
+
+    -- 既にキャラクターが存在する場合は直ちに処理
+    if player.Character then
+        handleCharacter(player.Character)
+    end
 end
 
 -- 既存のプレイヤーを処理

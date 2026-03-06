@@ -39,6 +39,8 @@ if hrp then
     -- マテリアルを設定
     hrp.Material = Enum.Material.SmoothPlastic
     hrp.Color = marbleColor
+    -- 明示的に透過度を0にして見えるようにする
+    hrp.Transparency = 0
     
     -- 物理設定
     hrp.CustomPhysicalProperties = PhysicalProperties.new(
