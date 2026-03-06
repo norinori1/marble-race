@@ -67,6 +67,40 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
             if humanoid then
                 print("[MarbleControl] マーブルHP: " .. tostring(humanoid.Health))
             end
+                -- ローカル表示の確保: サーバ側で透明になっている場合、クライアント側で一時的に表示する
+                if hrp then
+                    -- 強制的に表示（クライアント側で即時復元）
+                    if hrp.Transparency >= 1 then
+                        hrp.LocalTransparencyModifier = 0
+                        hrp.Transparency = 0
+                        print("[MarbleControl] HRP が透明だったため、LocalTransparencyModifier と Transparency をリセットしました")
+                    else
+                        hrp.LocalTransparencyModifier = 0
+                    end
+                    -- 既存の子パーツもローカルで強制表示（クライアント側で強制的に0にする）
+                    for _, part in ipairs(character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.LocalTransparencyModifier = 0
+                            if part.Transparency >= 1 then
+                                part.Transparency = 0
+                            end
+                        end
+                    end
+                    -- MarbleModel が後から追加された場合に備えて監視を行う
+                    character.ChildAdded:Connect(function(child)
+                        if child and child.Name == "MarbleModel" then
+                            print("[MarbleControl] MarbleModel が追加されました: " .. tostring(child))
+                            for _, d in ipairs(child:GetDescendants()) do
+                                if d:IsA("BasePart") then
+                                    d.LocalTransparencyModifier = 0
+                                    if d.Transparency >= 1 then
+                                        d.Transparency = 0
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                end
         end
     end
 end)
@@ -74,40 +108,6 @@ end)
 -- レース終了イベントを監視
 local raceEndEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("RaceEnd")
 raceEndEvent.OnClientEvent:Connect(function(data)
-                        -- ローカル表示の確保: サーバ側で透明になっている場合、クライアント側で一時的に表示する
-                        if hrp then
-                            -- 強制的に表示（クライアント側で即時復元）
-                            if hrp.Transparency >= 1 then
-                                hrp.LocalTransparencyModifier = 0
-                                hrp.Transparency = 0
-                                print("[MarbleControl] HRP が透明だったため、LocalTransparencyModifier と Transparency をリセットしました")
-                            else
-                                hrp.LocalTransparencyModifier = 0
-                            end
-                            -- 既存の子パーツもローカルで強制表示（クライアント側で強制的に0にする）
-                            for _, part in ipairs(character:GetDescendants()) do
-                                if part:IsA("BasePart") then
-                                    part.LocalTransparencyModifier = 0
-                                    if part.Transparency >= 1 then
-                                        part.Transparency = 0
-                                    end
-                                end
-                            end
-                            -- MarbleModel が後から追加された場合に備えて監視を行う
-                            character.ChildAdded:Connect(function(child)
-                                if child and child.Name == "MarbleModel" then
-                                    print("[MarbleControl] MarbleModel が追加されました: " .. tostring(child))
-                                    for _, d in ipairs(child:GetDescendants()) do
-                                        if d:IsA("BasePart") then
-                                            d.LocalTransparencyModifier = 0
-                                            if d.Transparency >= 1 then
-                                                d.Transparency = 0
-                                            end
-                                        end
-                                    end
-                                end
-                            end)
-                        end
     isRacing = false
     print("[MarbleControl] レース終了！操作を無効にします")
 end)
@@ -161,10 +161,33 @@ local MAX_SPEED = 120
 local FRICTION = 0.98
 local GRAVITY = Vector3.new(0, -150, 0)
 local ACCELERATION = 250
+local GAMEPAD_DEADZONE = 0.15
 
 -- 入力状態
 local moveInput = Vector3.new(0, 0, 0)
 local isJumping = false
+local lastMoveInputDebugTime = 0
+
+-- キー状態トラッキング（InputBegan/InputEndedで確実に検知する）
+local keyState = {}
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        keyState[input.KeyCode] = true
+        -- デバッグ出力
+        if input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.S or input.KeyCode == Enum.KeyCode.D then
+            print("[MarbleControl] KeyDown: " .. tostring(input.KeyCode))
+        end
+    end
+end)
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        keyState[input.KeyCode] = nil
+        if input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.S or input.KeyCode == Enum.KeyCode.D then
+            print("[MarbleControl] KeyUp: " .. tostring(input.KeyCode))
+        end
+    end
+end)
 
 -- カメラ追従設定（マブルサイズに合わせて調整）
 local cameraOffset = Vector3.new(0, 20, 25)
@@ -173,26 +196,56 @@ local cameraSmoothness = 0.08
 -- 入力の取得
 local function getMoveInput()
     local inputVector = Vector3.new(0, 0, 0)
-    
-    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+    -- まず InputBegan/InputEnded で記録した keyState を優先して使う
+    if keyState[Enum.KeyCode.W] then
         inputVector = inputVector + Vector3.new(0, 0, -1)
     end
-    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+    if keyState[Enum.KeyCode.S] then
         inputVector = inputVector + Vector3.new(0, 0, 1)
     end
-    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+    if keyState[Enum.KeyCode.A] then
         inputVector = inputVector + Vector3.new(-1, 0, 0)
     end
-    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+    if keyState[Enum.KeyCode.D] then
         inputVector = inputVector + Vector3.new(1, 0, 0)
     end
+
+    -- フォールバック: keyState が空の場合は IsKeyDown を参照
+    if inputVector.Magnitude == 0 then
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            inputVector = inputVector + Vector3.new(0, 0, -1)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            inputVector = inputVector + Vector3.new(0, 0, 1)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            inputVector = inputVector + Vector3.new(-1, 0, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            inputVector = inputVector + Vector3.new(1, 0, 0)
+        end
+    end
+
+    -- デバッグ: keyState と IsKeyDown の差分を出す（問題切り分け用）
+    local ks = tostring(keyState[Enum.KeyCode.W]) .. "," .. tostring(keyState[Enum.KeyCode.A]) .. "," .. tostring(keyState[Enum.KeyCode.S]) .. "," .. tostring(keyState[Enum.KeyCode.D])
+    local iskd = tostring(UserInputService:IsKeyDown(Enum.KeyCode.W)) .. "," .. tostring(UserInputService:IsKeyDown(Enum.KeyCode.A)) .. "," .. tostring(UserInputService:IsKeyDown(Enum.KeyCode.S)) .. "," .. tostring(UserInputService:IsKeyDown(Enum.KeyCode.D))
+    if tick() - lastMoveInputDebugTime > 0.5 then
+        print("[MarbleControl] getMoveInput debug: keyState=" .. ks .. " IsKeyDown=" .. iskd .. " vectorBeforeNorm=" .. tostring(inputVector))
+        lastMoveInputDebugTime = tick()
+    end
     
-    -- モバイル用の仮想スティック入力
+    -- ゲームパッド入力は有効なスティック操作がある時だけ使う
     local gamepad = UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1)
     if #gamepad > 0 then
         for _, button in gamepad do
             if button.KeyCode == Enum.KeyCode.Thumbstick1 then
-                inputVector = Vector3.new(button.Position.X, 0, -button.Position.Y)
+                local thumbstickVector = Vector3.new(button.Position.X, 0, -button.Position.Y)
+                if thumbstickVector.Magnitude > GAMEPAD_DEADZONE then
+                    inputVector = thumbstickVector
+                    if tick() - lastMoveInputDebugTime > 0.5 then
+                        print("[MarbleControl] gamepad input detected: " .. tostring(thumbstickVector))
+                    end
+                end
             end
         end
     end
@@ -233,6 +286,17 @@ RunService.Heartbeat:Connect(function(deltaTime)
     
     -- 入力の取得
     moveInput = getMoveInput()
+
+    -- デバッグ: キー状態と入力ベクトルをログ（早めに実行して、moveInput==0でもキー押下の矛盾を検出）
+    if moveInput.Magnitude > 0 then
+        print("[MarbleControl] moveInput magnitude: " .. tostring(moveInput.Magnitude) .. " moveInput: " .. tostring(moveInput))
+    else
+        -- キーが押されているが moveInput が0になっているケースの検出
+        local anyKey = keyState[Enum.KeyCode.W] or keyState[Enum.KeyCode.A] or keyState[Enum.KeyCode.S] or keyState[Enum.KeyCode.D]
+        if anyKey then
+            print("[MarbleControl] キーは押されていますが moveInput がゼロです（カメラ参照の問題かもしれません）")
+        end
+    end
 
     if moveInput.Magnitude == 0 and not isJumping then
         local currentVelocity = hrp.AssemblyLinearVelocity
@@ -334,6 +398,13 @@ RunService.Heartbeat:Connect(function(deltaTime)
     
     -- 速度を適用
     hrp.AssemblyLinearVelocity = currentVelocity
+    -- 適用後の速度をログ（デバッグ）
+    task.spawn(function()
+        task.wait(0.03)
+        if hrp and hrp.Parent then
+            print("[MarbleControl] Applied velocity: " .. tostring(hrp.AssemblyLinearVelocity))
+        end
+    end)
 end)
 
 -- キャラクターがリスポーンしたときの処理
