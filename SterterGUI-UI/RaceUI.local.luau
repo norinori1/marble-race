@@ -218,6 +218,9 @@ raceStartEvent.OnClientEvent:Connect(function(data)
     screenGui.Enabled = true
     checkpointLabel.Text = "🚩 0/" .. data.checkpointCount
     rankLabel.Text = "🏆 ?位"
+    timeLabel.Text = "⏱️ " .. tostring(data.duration) .. "秒"
+    goalNotification.Visible = false
+    checkpointNotification.Visible = false
     
     -- レースBGMを再生
     if _G.playBGM and data.bgmName then
@@ -292,6 +295,8 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
         else
             timeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         end
+    elseif data.type == "rank" then
+        rankLabel.Text = "🏆 " .. tostring(data.value) .. "位"
     elseif data.type == "finished" then
         goalNotification.Visible = true
         goalTimeLabel.Text = "タイム: " .. string.format("%.2f", data.time) .. "秒"
@@ -303,6 +308,10 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
         if _G.attachEffectToMarble then
             _G.attachEffectToMarble("GoalEffect", 3)
         end
+    elseif data.type == "post_race_countdown" then
+        goalNotification.Visible = true
+        goalNotificationLabel.Text = "📋 結果表示中"
+        goalTimeLabel.Text = "ロビー復帰まで: " .. tostring(data.value) .. "秒"
     end
 end)
 

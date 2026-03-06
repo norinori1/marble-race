@@ -19,6 +19,10 @@ screenGui.Name = "LobbyUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
+_G.setLobbyUIVisible = function(visible)
+    screenGui.Enabled = visible
+end
+
 -- メインフレーム
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
@@ -301,15 +305,15 @@ end)
 -- レース開始イベントの受信
 raceStartEvent.OnClientEvent:Connect(function(data)
     -- ロビーUIを非表示
-    screenGui.Enabled = false
+    _G.setLobbyUIVisible(false)
 end)
 
 -- レース終了イベントの受信
 raceEndEvent.OnClientEvent:Connect(function(data)
-    -- ロビーUIを表示
-    screenGui.Enabled = true
     startButton.Text = "レース開始"
     startButton.Active = true
+    statusLabel.Text = "結果を集計しています..."
+    statusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
 end)
 
 -- エラーメッセージの表示
@@ -320,6 +324,13 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
         statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
         startButton.Text = "レース開始"
         startButton.Active = true
+    elseif data.type == "post_race_countdown" then
+        statusLabel.Text = "次のレース待機中... " .. tostring(data.value) .. "秒"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    elseif data.type == "show_lobby" then
+        _G.setLobbyUIVisible(true)
+        updatePlayerInfo()
+        updateWaitingPlayers()
     end
 end)
 

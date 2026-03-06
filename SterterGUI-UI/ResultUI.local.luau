@@ -7,7 +7,10 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- RemoteEvents
-local raceEndEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("RaceEnd")
+local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+local raceEndEvent = remoteEvents:WaitForChild("RaceEnd")
+local raceStartEvent = remoteEvents:WaitForChild("RaceStart")
+local updateRaceUIEvent = remoteEvents:WaitForChild("UpdateRaceUI")
 
 -- UIの作成
 local screenGui = Instance.new("ScreenGui")
@@ -25,6 +28,10 @@ mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 14)
+corner.Parent = mainFrame
+
 -- タイトル
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Name = "TitleLabel"
@@ -37,6 +44,17 @@ titleLabel.TextScaled = true
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.Parent = mainFrame
 
+local summaryLabel = Instance.new("TextLabel")
+summaryLabel.Name = "SummaryLabel"
+summaryLabel.Size = UDim2.new(0.9, 0, 0.08, 0)
+summaryLabel.Position = UDim2.new(0.05, 0, 0.12, 0)
+summaryLabel.BackgroundTransparency = 1
+summaryLabel.Text = ""
+summaryLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+summaryLabel.TextScaled = true
+summaryLabel.Font = Enum.Font.Gotham
+summaryLabel.Parent = mainFrame
+
 -- 自分の結果フレーム
 local myResultFrame = Instance.new("Frame")
 myResultFrame.Name = "MyResultFrame"
@@ -45,6 +63,10 @@ myResultFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
 myResultFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
 myResultFrame.BorderSizePixel = 0
 myResultFrame.Parent = mainFrame
+
+local myResultCorner = Instance.new("UICorner")
+myResultCorner.CornerRadius = UDim.new(0, 12)
+myResultCorner.Parent = myResultFrame
 
 -- 順位表示
 local rankLabel = Instance.new("TextLabel")
@@ -94,6 +116,17 @@ messageLabel.TextScaled = true
 messageLabel.Font = Enum.Font.Gotham
 messageLabel.Parent = myResultFrame
 
+local detailLabel = Instance.new("TextLabel")
+detailLabel.Name = "DetailLabel"
+detailLabel.Size = UDim2.new(0.9, 0, 0.25, 0)
+detailLabel.Position = UDim2.new(0.05, 0, 0.72, 0)
+detailLabel.BackgroundTransparency = 1
+detailLabel.Text = ""
+detailLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+detailLabel.TextScaled = true
+detailLabel.Font = Enum.Font.Gotham
+detailLabel.Parent = myResultFrame
+
 -- 全順位リストフレーム
 local rankingsFrame = Instance.new("Frame")
 rankingsFrame.Name = "RankingsFrame"
@@ -102,6 +135,10 @@ rankingsFrame.Position = UDim2.new(0.05, 0, 0.5, 0)
 rankingsFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 rankingsFrame.BorderSizePixel = 0
 rankingsFrame.Parent = mainFrame
+
+local rankingsCorner = Instance.new("UICorner")
+rankingsCorner.CornerRadius = UDim.new(0, 12)
+rankingsCorner.Parent = rankingsFrame
 
 -- 順位リストタイトル
 local rankingsTitle = Instance.new("TextLabel")
@@ -143,6 +180,19 @@ closeButton.TextScaled = true
 closeButton.Font = Enum.Font.GothamBold
 closeButton.Parent = mainFrame
 
+local footerLabel = Instance.new("TextLabel")
+footerLabel.Name = "FooterLabel"
+footerLabel.Size = UDim2.new(0.45, 0, 0.08, 0)
+footerLabel.Position = UDim2.new(0.525, 0, 0.92, 0)
+footerLabel.BackgroundTransparency = 1
+footerLabel.Text = "ロビーへ戻る準備中..."
+footerLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+footerLabel.TextScaled = true
+footerLabel.Font = Enum.Font.Gotham
+footerLabel.Parent = mainFrame
+
+local resultVisibleUntil = 0
+
 -- ボタンホバーエフェクト
 closeButton.MouseEnter:Connect(function()
     TweenService:Create(closeButton, TweenInfo.new(0.2), {
@@ -159,6 +209,9 @@ end)
 -- 閉じるボタンのクリック
 closeButton.MouseButton1Click:Connect(function()
     screenGui.Enabled = false
+    if _G.setLobbyUIVisible then
+        _G.setLobbyUIVisible(true)
+    end
 end)
 
 -- 順位に応じたメッセージ
@@ -205,6 +258,10 @@ local function createRankingsList(rankings)
         rankFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
         rankFrame.BorderSizePixel = 0
         rankFrame.Parent = scrollFrame
+
+        local rankCorner = Instance.new("UICorner")
+        rankCorner.CornerRadius = UDim.new(0, 8)
+        rankCorner.Parent = rankFrame
         
         -- 順位
         local rankTextLabel = Instance.new("TextLabel")
@@ -218,7 +275,7 @@ local function createRankingsList(rankings)
         
         -- プレイヤー名
         local targetPlayer = Players:GetPlayerByUserId(data.userId)
-        local playerName = targetPlayer and targetPlayer.Name or "Unknown"
+        local playerName = data.playerName or (targetPlayer and targetPlayer.Name) or "Unknown"
         
         local nameLabel = Instance.new("TextLabel")
         nameLabel.Size = UDim2.new(0.5, 0, 1, 0)
@@ -235,7 +292,7 @@ local function createRankingsList(rankings)
         checkpointLabel.Size = UDim2.new(0.2, 0, 1, 0)
         checkpointLabel.Position = UDim2.new(0.65, 0, 0, 0)
         checkpointLabel.BackgroundTransparency = 1
-        checkpointLabel.Text = "CP: " .. data.checkpointsPassed
+        checkpointLabel.Text = "CP: " .. tostring(data.checkpointsPassed)
         checkpointLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
         checkpointLabel.TextScaled = true
         checkpointLabel.Font = Enum.Font.Gotham
@@ -259,10 +316,21 @@ local function createRankingsList(rankings)
     end
 end
 
+local function updateFooterCountdown(seconds)
+    if seconds and seconds > 0 then
+        footerLabel.Text = "ロビー表示まで: " .. tostring(seconds) .. "秒"
+        closeButton.Text = "今すぐロビーへ"
+    else
+        footerLabel.Text = "ロビーに戻れます"
+        closeButton.Text = "ロビーに戻る"
+    end
+end
+
 -- レース終了イベントの受信
 raceEndEvent.OnClientEvent:Connect(function(data)
     -- 結果UIを表示
     screenGui.Enabled = true
+    resultVisibleUntil = tick() + (data.resultDisplayTime or 0)
     
     -- 自分の結果を表示
     rankLabel.Text = "🏆 " .. data.rank .. "位"
@@ -270,9 +338,34 @@ raceEndEvent.OnClientEvent:Connect(function(data)
     coinsRewardLabel.Text = "+" .. data.coins .. " 💰"
     xpRewardLabel.Text = "+" .. data.xp .. " ⭐"
     messageLabel.Text = getRankMessage(data.rank)
+    summaryLabel.Text = string.format("%s / %d人中 %d位", data.mapName or "Unknown", data.totalPlayers or #data.rankings, data.rank)
+
+    local playerStats = data.playerStats or {}
+    if playerStats.finished then
+        detailLabel.Text = string.format("完走タイム: %.2f秒 / CP %d/%d", playerStats.finishTime or 0, playerStats.checkpointsPassed or 0, data.totalCheckpoints or 0)
+    else
+        detailLabel.Text = string.format("未完走 / CP %d/%d", playerStats.checkpointsPassed or 0, data.totalCheckpoints or 0)
+    end
+    updateFooterCountdown(data.resultDisplayTime)
     
     -- 全順位リストを作成
     createRankingsList(data.rankings)
+end)
+
+raceStartEvent.OnClientEvent:Connect(function()
+    screenGui.Enabled = false
+    updateFooterCountdown(0)
+end)
+
+updateRaceUIEvent.OnClientEvent:Connect(function(data)
+    if data.type == "post_race_countdown" then
+        updateFooterCountdown(data.value)
+    elseif data.type == "show_lobby" then
+        updateFooterCountdown(0)
+        if tick() >= resultVisibleUntil then
+            screenGui.Enabled = false
+        end
+    end
 end)
 
 return "結果UIを作成しました"

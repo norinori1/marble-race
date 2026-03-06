@@ -93,7 +93,7 @@ local function updatePlayerEntry(player, updates)
 end
 
 -- レース結果をリーダーボードに記録
-local function recordRaceResult(player, rank, time, coinsEarned)
+local function recordRaceResult(player, rank, time, coinsEarned, finished)
     local entry, index = getPlayerEntry(player.UserId)
     
     if not entry then
@@ -109,7 +109,7 @@ local function recordRaceResult(player, rank, time, coinsEarned)
     end
     
     -- ベストタイムを更新
-    if time < (entry.bestTime or math.huge) then
+    if finished and typeof(time) == "number" and time > 0 and time < (entry.bestTime or math.huge) then
         entry.bestTime = time
     end
     

@@ -1,9 +1,7 @@
 -- レースマネージャースクリプト
 local Players = game:GetService("Players")
-local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
 local maps = workspace:WaitForChild("RaceMaps")
 local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -19,6 +17,8 @@ local MIN_PLAYERS = 2
 local MAX_PLAYERS = 12
 local RACE_DURATION = 180 -- 秒
 local COUNTDOWN_TIME = 5 -- 秒
+local RESULT_DISPLAY_TIME = 12 -- 秒
+local FINISH_GRACE_PERIOD = 3 -- 全員完走後に結果を出すまでの猶予
 
 -- レース状態（グローバル変数として公開）
 _G.raceState = {
@@ -32,6 +32,130 @@ _G.raceState = {
 
 -- ローカル変数としても参照
 local raceState = _G.raceState
+local endRace
+
+local function getTotalCheckpoints()
+    if not raceState.currentMap then
+        return 0
+    end
+
+    return raceState.currentMap:GetAttribute("CheckpointCount") or 0
+end
+
+local function buildRankings()
+    local rankings = {}
+
+    for userId, progress in pairs(raceState.playerProgress) do
+        local targetPlayer = Players:GetPlayerByUserId(userId)
+        table.insert(rankings, {
+            userId = userId,
+            playerName = targetPlayer and targetPlayer.Name or ("Player_" .. tostring(userId)),
+            checkpointsPassed = progress.checkpointsPassed,
+            distanceTraveled = progress.distanceTraveled,
+            finished = progress.finished,
+            finishTime = progress.finishTime,
+        })
+    end
+
+    table.sort(rankings, function(a, b)
+        if a.finished and b.finished then
+            return a.finishTime < b.finishTime
+        elseif a.finished then
+            return true
+        elseif b.finished then
+            return false
+        end
+
+        if a.checkpointsPassed ~= b.checkpointsPassed then
+            return a.checkpointsPassed > b.checkpointsPassed
+        end
+
+        return a.distanceTraveled > b.distanceTraveled
+    end)
+
+    for rank, data in ipairs(rankings) do
+        data.rank = rank
+        data.statusText = data.finished and string.format("%.2fs", data.finishTime) or "DNF"
+    end
+
+    return rankings
+end
+
+local function broadcastCurrentRanks()
+    if not raceState.isRacing then
+        return
+    end
+
+    local rankings = buildRankings()
+    local rankByUserId = {}
+
+    for _, entry in ipairs(rankings) do
+        rankByUserId[entry.userId] = entry.rank
+    end
+
+    for _, player in raceState.players do
+        updateRaceUIEvent:FireClient(player, {
+            type = "rank",
+            value = rankByUserId[player.UserId] or #rankings,
+            totalPlayers = #rankings,
+        })
+    end
+end
+
+local function shouldFinishRaceEarly()
+    if not raceState.isRacing or #raceState.players == 0 then
+        return false
+    end
+
+    for _, player in raceState.players do
+        local progress = raceState.playerProgress[player.UserId]
+        if progress and not progress.finished then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function sendPostRaceCountdown(seconds)
+    for remaining = seconds, 1, -1 do
+        for _, player in raceState.players do
+            updateRaceUIEvent:FireClient(player, {
+                type = "post_race_countdown",
+                value = remaining,
+            })
+        end
+        task.wait(1)
+    end
+
+    for _, player in raceState.players do
+        updateRaceUIEvent:FireClient(player, {
+            type = "show_lobby",
+        })
+    end
+end
+
+local function teleportPlayersToLobby(playersToTeleport)
+    local lobbyFolder = workspace:FindFirstChild("Lobby")
+    if not lobbyFolder then
+        return
+    end
+
+    local spawnLocations = lobbyFolder:FindFirstChild("SpawnLocations")
+    if not spawnLocations then
+        return
+    end
+
+    for _, player in playersToTeleport do
+        if player.Character and player.Character.PrimaryPart then
+            local spawnIndex = (player.UserId % 12) + 1
+            local spawnLocation = spawnLocations:FindFirstChild("Spawn" .. spawnIndex)
+            if spawnLocation then
+                player.Character:SetPrimaryPartCFrame(spawnLocation.CFrame + Vector3.new(0, 5, 0))
+            end
+        end
+    end
+end
 
 -- プレイヤー進捗情報の初期化
 local function initializePlayerProgress(player)
@@ -121,6 +245,8 @@ local function prepareRace(forceStart)
     for _, player in raceState.players do
         initializePlayerProgress(player)
     end
+
+    broadcastCurrentRanks()
     
     return true, "レース準備完了: " .. selectedMap:GetAttribute("CourseName")
 end
@@ -218,14 +344,14 @@ local function startRace(forceStart)
                 end
                 
                 -- 位置が正常か確認（スタートエリア内か）
-                local startArea = currentMap:FindFirstChild("StartArea")
-                if startArea then
-                    local distance = (hrp.Position - startArea.Position).Magnitude
+                local raceStartArea = currentMap:FindFirstChild("StartArea")
+                if raceStartArea then
+                    local distance = (hrp.Position - raceStartArea.Position).Magnitude
                     print("[RaceManager] プレイヤー " .. player.Name .. " とStartAreaの距離: " .. string.format("%.2f", distance) .. "m")
                     if distance > 50 then
                         warn("[RaceManager] プレイヤー " .. player.Name .. " がスタートエリアから遠い！位置を再設定します")
                         local offset = Vector3.new((math.random() - 0.5) * 10, 5, (math.random() - 0.5) * 10)
-                        character:PivotTo(startArea.CFrame * CFrame.new(offset))
+                        character:PivotTo(raceStartArea.CFrame * CFrame.new(offset))
                     end
                 end
             end
@@ -239,6 +365,8 @@ local function startRace(forceStart)
             value = 0
         })
     end
+
+    broadcastCurrentRanks()
     
     -- タイマー開始
     task.spawn(function()
@@ -252,13 +380,15 @@ local function startRace(forceStart)
                     value = remainingTime
                 })
             end
+
+            broadcastCurrentRanks()
             
             task.wait(1)
         end
         
         -- タイムアップ
         if raceState.isRacing then
-            endRace()
+            endRace("time_up")
         end
     end)
     
@@ -266,41 +396,19 @@ local function startRace(forceStart)
 end
 
 -- レース終了
-local function endRace()
+endRace = function(reason)
     if not raceState.isRacing then
         return
     end
+
+    reason = reason or "manual"
     
     raceState.isRacing = false
     
-    -- 順位の計算
-    local rankings = {}
-    for userId, progress in pairs(raceState.playerProgress) do
-        table.insert(rankings, {
-            userId = userId,
-            checkpointsPassed = progress.checkpointsPassed,
-            distanceTraveled = progress.distanceTraveled,
-            finished = progress.finished,
-            finishTime = progress.finishTime
-        })
-    end
-    
-    -- 順位でソート
-    table.sort(rankings, function(a, b)
-        if a.finished and b.finished then
-            return a.finishTime < b.finishTime
-        elseif a.finished then
-            return true
-        elseif b.finished then
-            return false
-        else
-            if a.checkpointsPassed ~= b.checkpointsPassed then
-                return a.checkpointsPassed > b.checkpointsPassed
-            else
-                return a.distanceTraveled > b.distanceTraveled
-            end
-        end
-    end)
+    local rankings = buildRankings()
+    local playersAtRaceEnd = table.clone(raceState.players)
+    local totalCheckpoints = getTotalCheckpoints()
+    local totalPlayers = #playersAtRaceEnd
     
     -- 報酬の計算
     local rewards = {}
@@ -319,19 +427,21 @@ local function endRace()
         rewards[data.userId] = {
             rank = rank,
             coins = coinReward,
-            xp = 10 + (MAX_PLAYERS - rank + 1) * 5
+            xp = 10 + math.max(0, totalPlayers - rank + 1) * 5
         }
     end
     
     -- 全プレイヤーに結果を通知
-    for _, player in raceState.players do
+    for _, player in playersAtRaceEnd do
         local playerReward = rewards[player.UserId]
+        local currentData = _G.getPlayerData and _G.getPlayerData(player) or nil
+        local playerProgress = raceState.playerProgress[player.UserId]
         
         -- 報酬を配布
-        if _G.updatePlayerData then
+        if _G.updatePlayerData and currentData and playerReward then
             _G.updatePlayerData(player, {
-                coins = (_G.getPlayerData(player).coins or 0) + playerReward.coins,
-                totalRaces = (_G.getPlayerData(player).totalRaces or 0) + 1
+                coins = (currentData.coins or 0) + playerReward.coins,
+                totalRaces = (currentData.totalRaces or 0) + 1
             })
             
             -- XPを追加
@@ -341,50 +451,57 @@ local function endRace()
             
             -- 勝利数を更新
             if playerReward.rank == 1 then
+                local updatedData = _G.getPlayerData(player) or currentData
                 _G.updatePlayerData(player, {
-                    totalWins = (_G.getPlayerData(player).totalWins or 0) + 1
+                    totalWins = (updatedData.totalWins or 0) + 1
                 })
+            end
+
+            if _G.savePlayerData then
+                task.spawn(function()
+                    _G.savePlayerData(player)
+                end)
             end
         end
         
         -- リーダーボードに記録
         if _G.recordRaceResult then
-            local playerProgress = raceState.playerProgress[player.UserId]
-            local finishTime = playerProgress and playerProgress.finishTime or 0
-            _G.recordRaceResult(player, playerReward.rank, finishTime, playerReward.coins)
+            local finishTime = playerProgress and playerProgress.finishTime or nil
+            _G.recordRaceResult(player, playerReward.rank, finishTime, playerReward.coins, playerProgress and playerProgress.finished or false)
         end
         
         raceEndEvent:FireClient(player, {
             rank = playerReward.rank,
             coins = playerReward.coins,
             xp = playerReward.xp,
-            rankings = rankings
+            rankings = rankings,
+            totalPlayers = totalPlayers,
+            totalCheckpoints = totalCheckpoints,
+            mapName = raceState.currentMap and (raceState.currentMap:GetAttribute("CourseName") or raceState.currentMap.Name) or "Unknown",
+            reason = reason,
+            resultDisplayTime = RESULT_DISPLAY_TIME,
+            playerStats = {
+                finished = playerProgress and playerProgress.finished or false,
+                finishTime = playerProgress and playerProgress.finishTime or 0,
+                checkpointsPassed = playerProgress and playerProgress.checkpointsPassed or 0,
+            },
         })
     end
     
     -- マップは常に表示状態のまま
     
     -- プレイヤーをロビーに戻す
-    local lobbyFolder = workspace:FindFirstChild("Lobby")
-    if lobbyFolder then
-        local spawnLocations = lobbyFolder:FindFirstChild("SpawnLocations")
-        if spawnLocations then
-            for i, player in raceState.players do
-                if player.Character and player.Character.PrimaryPart then
-                    local spawnIndex = (player.UserId % 12) + 1
-                    local spawnLocation = spawnLocations:FindFirstChild("Spawn" .. spawnIndex)
-                    if spawnLocation then
-                        player.Character:SetPrimaryPartCFrame(spawnLocation.CFrame + Vector3.new(0, 5, 0))
-                    end
-                end
-            end
-        end
-    end
+    teleportPlayersToLobby(playersAtRaceEnd)
+    task.spawn(function()
+        sendPostRaceCountdown(RESULT_DISPLAY_TIME)
+    end)
     
     -- レース状態をリセット
     raceState.currentMap = nil
     raceState.players = {}
     raceState.playerProgress = {}
+    raceState.raceStartTime = 0
+    raceState.countdown = 0
 end
 
 -- チェックポイント通過判定
@@ -407,6 +524,7 @@ local function checkCheckpoint(player, checkpointPart)
     if checkpointNumber == progress.lastCheckpoint + 1 then
         progress.lastCheckpoint = checkpointNumber
         progress.checkpointsPassed = checkpointNumber
+        broadcastCurrentRanks()
         
         -- プレイヤーに通知
         checkpointReachedEvent:FireClient(player, {
@@ -432,12 +550,22 @@ local function checkGoal(player, goalPart)
     if progress.checkpointsPassed >= totalCheckpoints then
         progress.finished = true
         progress.finishTime = tick() - raceState.raceStartTime
+        broadcastCurrentRanks()
         
         -- プレイヤーにゴール通知
         updateRaceUIEvent:FireClient(player, {
             type = "finished",
             time = progress.finishTime
         })
+
+        if shouldFinishRaceEarly() then
+            local raceStartTimeSnapshot = raceState.raceStartTime
+            task.delay(FINISH_GRACE_PERIOD, function()
+                if raceState.isRacing and raceState.raceStartTime == raceStartTimeSnapshot and shouldFinishRaceEarly() then
+                    endRace("all_finished")
+                end
+            end)
+        end
     end
 end
 
