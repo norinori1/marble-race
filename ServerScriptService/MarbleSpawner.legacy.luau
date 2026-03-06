@@ -81,6 +81,9 @@ local function onPlayerAdded(player)
                             part.Anchored = false
                             part.Massless = true
                             part.CanCollide = false
+                            part.CanTouch = false
+                            part.CanQuery = false
+                            part.CastShadow = false
                             if part.Name == "Marble" or part.Name == "HumanoidRootPart" then
                                 part.Transparency = 0
                             end
@@ -92,6 +95,8 @@ local function onPlayerAdded(player)
                 hrp.Transparency = 0
                 print("[MarbleSpawner] HRP の Transparency を0に設定しました")
                 hrp.CanCollide = true
+                hrp.CanTouch = true
+                hrp.CanQuery = true
                 hrp.Anchored = false
                 hrp.Size = Vector3.new(4, 4, 4) -- サイズ統一
                 hrp.Shape = Enum.PartType.Ball
@@ -116,13 +121,17 @@ local function onPlayerAdded(player)
             local marblePart = marble:FindFirstChild("Marble")
             if marblePart then
                 marblePart.Transparency = 0
-                marblePart.CanCollide = true
+                marblePart.CanCollide = false
+                marblePart.CanTouch = false
+                marblePart.CanQuery = false
             end
             
             local marbleHrp = marble:FindFirstChild("HumanoidRootPart")
             if marbleHrp then
                 marbleHrp.Transparency = 0
-                marbleHrp.CanCollide = true
+                marbleHrp.CanCollide = false
+                marbleHrp.CanTouch = false
+                marbleHrp.CanQuery = false
             end
             
             -- マブルの位置をスポーン位置に設定
@@ -145,7 +154,6 @@ local function onPlayerAdded(player)
                     warn("[MarbleSpawner] プレイヤー " .. player.Name .. " のPrimaryPartが設定されていません")
                 end
             end
-        end
     end
 
     -- CharacterAdded に接続

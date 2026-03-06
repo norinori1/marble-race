@@ -9,6 +9,34 @@ local character = player.Character or player.CharacterAdded:Wait()
 local hrp = nil
 local humanoid = nil
 
+local function isMarbleVisualPart(part)
+    if not part or not part:IsA("BasePart") then
+        return false
+    end
+
+    if part == hrp or part.Name == "HumanoidRootPart" then
+        return true
+    end
+
+    local marbleModel = character and character:FindFirstChild("MarbleModel")
+    return marbleModel ~= nil and part:IsDescendantOf(marbleModel)
+end
+
+local function forceMarbleVisibility(part)
+    if not part or not part:IsA("BasePart") then
+        return
+    end
+
+    if isMarbleVisualPart(part) then
+        part.LocalTransparencyModifier = 0
+        if part.Transparency >= 1 then
+            part.Transparency = 0
+        end
+    else
+        part.LocalTransparencyModifier = 1
+    end
+end
+
 local function resolveCharacterParts(targetCharacter)
     local activeCharacter = targetCharacter or character
     if not activeCharacter then
@@ -67,40 +95,28 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
             if humanoid then
                 print("[MarbleControl] マーブルHP: " .. tostring(humanoid.Health))
             end
-                -- ローカル表示の確保: サーバ側で透明になっている場合、クライアント側で一時的に表示する
-                if hrp then
-                    -- 強制的に表示（クライアント側で即時復元）
-                    if hrp.Transparency >= 1 then
-                        hrp.LocalTransparencyModifier = 0
-                        hrp.Transparency = 0
-                        print("[MarbleControl] HRP が透明だったため、LocalTransparencyModifier と Transparency をリセットしました")
-                    else
-                        hrp.LocalTransparencyModifier = 0
-                    end
-                    -- 既存の子パーツもローカルで強制表示（クライアント側で強制的に0にする）
-                    for _, part in ipairs(character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.LocalTransparencyModifier = 0
-                            if part.Transparency >= 1 then
-                                part.Transparency = 0
-                            end
-                        end
-                    end
-                    -- MarbleModel が後から追加された場合に備えて監視を行う
-                    character.ChildAdded:Connect(function(child)
-                        if child and child.Name == "MarbleModel" then
-                            print("[MarbleControl] MarbleModel が追加されました: " .. tostring(child))
-                            for _, d in ipairs(child:GetDescendants()) do
-                                if d:IsA("BasePart") then
-                                    d.LocalTransparencyModifier = 0
-                                    if d.Transparency >= 1 then
-                                        d.Transparency = 0
-                                    end
-                                end
-                            end
-                        end
-                    end)
+            if hrp then
+                if hrp.Transparency >= 1 then
+                    hrp.LocalTransparencyModifier = 0
+                    hrp.Transparency = 0
+                    print("[MarbleControl] HRP が透明だったため、LocalTransparencyModifier と Transparency をリセットしました")
+                else
+                    hrp.LocalTransparencyModifier = 0
                 end
+
+                for _, part in ipairs(character:GetDescendants()) do
+                    forceMarbleVisibility(part)
+                end
+
+                character.ChildAdded:Connect(function(child)
+                    if child and child.Name == "MarbleModel" then
+                        print("[MarbleControl] MarbleModel が追加されました: " .. tostring(child))
+                        for _, descendant in ipairs(child:GetDescendants()) do
+                            forceMarbleVisibility(descendant)
+                        end
+                    end
+                end)
+            end
         end
     end
 end)
@@ -174,13 +190,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.UserInputType == Enum.UserInputType.Keyboard then
         keyState[input.KeyCode] = true
-        -- デバッグ出力
         if input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.S or input.KeyCode == Enum.KeyCode.D then
             print("[MarbleControl] KeyDown: " .. tostring(input.KeyCode))
         end
     end
 end)
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
+
+UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Keyboard then
         keyState[input.KeyCode] = nil
         if input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.S or input.KeyCode == Enum.KeyCode.D then
@@ -196,7 +212,6 @@ local cameraSmoothness = 0.08
 -- 入力の取得
 local function getMoveInput()
     local inputVector = Vector3.new(0, 0, 0)
-    -- まず InputBegan/InputEnded で記録した keyState を優先して使う
     if keyState[Enum.KeyCode.W] then
         inputVector = inputVector + Vector3.new(0, 0, -1)
     end

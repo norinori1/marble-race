@@ -19,6 +19,38 @@ local marbleColors = {
 local colorIndex = (player and (player.UserId % #marbleColors) + 1) or math.random(1, #marbleColors)
 local marbleColor = marbleColors[colorIndex]
 
+local function isMarbleVisualInstance(instance)
+    if not instance then
+        return false
+    end
+
+    if instance.Name == "HumanoidRootPart" then
+        return true
+    end
+
+    local marbleModel = character:FindFirstChild("MarbleModel")
+    return marbleModel ~= nil and (instance == marbleModel or instance:IsDescendantOf(marbleModel))
+end
+
+local function hideAvatarInstance(instance)
+    if isMarbleVisualInstance(instance) then
+        return
+    end
+
+    if instance:IsA("BasePart") then
+        instance.Transparency = 1
+        instance.CanCollide = false
+        instance.CanTouch = false
+        instance.CanQuery = false
+        instance.CastShadow = false
+        instance.Massless = true
+    elseif instance:IsA("Decal") or instance:IsA("Texture") then
+        instance.Transparency = 1
+    elseif instance:IsA("ParticleEmitter") or instance:IsA("Trail") then
+        instance.Enabled = false
+    end
+end
+
 -- HumanoidRootPartを球体に変更
 local hrp = character:WaitForChild("HumanoidRootPart")
 if hrp then
@@ -61,6 +93,10 @@ if hrp then
     
     -- HumanoidRootPartをアンチャー解除（移動可能にする）
     hrp.Anchored = false
+    hrp.CanCollide = true
+    hrp.CanTouch = true
+    hrp.CanQuery = true
+    hrp.CastShadow = false
     
     print("[CharacterSetup] マブルキャラクターを設定しました: " .. (player and player.Name or "Unknown") .. " (色: " .. colorIndex .. ")")
     print("[CharacterSetup] PrimaryPartを設定しました: " .. hrp.Name .. " (確認: " .. tostring(character.PrimaryPart == hrp) .. ")")
@@ -94,24 +130,15 @@ end
 
 -- 不要なパーツを透明・無効化する（Destroyすると死亡判定になるリスクがあるため）
 for _, child in ipairs(character:GetDescendants()) do
-    -- MarbleModel内のパーツは除外
-    local marbleModel = character:FindFirstChild("MarbleModel")
-    local isMarblePart = false
-    if marbleModel then
-        isMarblePart = child:IsDescendantOf(marbleModel) or child == marbleModel
-    end
-    
-    if not isMarblePart then
-        if child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
-            -- ルートパーツ以外のすべてのパーツを透明にして当たり判定オフ
-            child.Transparency = 1
-            child.CanCollide = false
-            child.Massless = true
-        elseif child:IsA("Decal") then
-            -- 顔などのデカールを透明にする
-            child.Transparency = 1
-        end
-    end
+    hideAvatarInstance(child)
 end
+
+character.DescendantAdded:Connect(function(instance)
+    task.defer(function()
+        if instance and instance.Parent then
+            hideAvatarInstance(instance)
+        end
+    end)
+end)
 
 print("[CharacterSetup] マブルキャラクターの初期化が完了しました: " .. (player and player.Name or "Unknown"))
