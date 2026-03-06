@@ -8,11 +8,29 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- カメラ追従設定
-local cameraOffset = Vector3.new(0, 12, 18) -- 少し低く、近くに調整
+local cameraOffset = Vector3.new(0, 16, 26) -- 少し高く、遠めに調整
 local cameraSmoothness = 0.12 -- 少しレスポンスを上げる
 local isRacing = false
 local marble = nil
 local cameraInitialized = false
+
+local function setRaceCameraEnabled(enabled)
+    local camera = workspace.CurrentCamera
+    if not camera then
+        return
+    end
+
+    if enabled then
+        camera.CameraType = Enum.CameraType.Scriptable
+    else
+        camera.CameraType = Enum.CameraType.Custom
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            camera.CameraSubject = humanoid
+        end
+    end
+end
 
 -- マブルを取得する関数
 local function getMarble()
@@ -26,7 +44,7 @@ end
 
 -- カメラ追従ループ
 local frameCount = 0
-RunService.RenderStepped:Connect(function(deltaTime)
+RunService.RenderStepped:Connect(function()
     if isRacing then
         marble = getMarble()
         frameCount = frameCount + 1
@@ -45,10 +63,12 @@ RunService.RenderStepped:Connect(function(deltaTime)
         
         if marble then
             local camera = workspace.CurrentCamera
-            local targetCFrame = CFrame.new(marble.Position + cameraOffset, marble.Position)
+            local cameraTarget = marble.Position + Vector3.new(0, 3, 0)
+            local targetCFrame = CFrame.lookAt(marble.Position + cameraOffset, cameraTarget)
             
             if not cameraInitialized then
                 -- 初回はLerpせずにスナップ
+                setRaceCameraEnabled(true)
                 camera.CFrame = targetCFrame
                 cameraInitialized = true
                 print("[RaceUI] カメラをマブルにスナップしました")
@@ -209,6 +229,8 @@ end)
 raceEndEvent.OnClientEvent:Connect(function(data)
     screenGui.Enabled = false
     isRacing = false
+    cameraInitialized = false
+    setRaceCameraEnabled(false)
     
     -- ロビーBGMに戻す
     if _G.playBGM then
@@ -238,12 +260,15 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
         
         if data.value == 0 then
             countdownFrame.Visible = false
-            if _G.playSFX then _G.playSFX("GoSound") end
+            if _G.playSFX then
+                _G.playSFX("GoSound")
+            end
             
             -- レース開始：カメラ追従を開始
             if not isRacing then
                 isRacing = true
                 cameraInitialized = false -- 次のフレームでスナップさせる
+                setRaceCameraEnabled(true)
                 
                 print("[RaceUI] レース開始！カメラ追従を開始しました（countdown値0）")
             end
@@ -253,6 +278,7 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
         if not isRacing then
             isRacing = true
             cameraInitialized = false
+            setRaceCameraEnabled(true)
             print("[RaceUI] レース開始！カメラ追従を開始しました（race_started）")
         else
             print("[RaceUI] レース既に開始済み（race_started）")

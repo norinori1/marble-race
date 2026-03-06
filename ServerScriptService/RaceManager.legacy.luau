@@ -45,6 +45,35 @@ local function initializePlayerProgress(player)
     }
 end
 
+-- マップの初期配置分散（重なり防止）
+local function initializeMapPositions()
+    print("[RaceManager] マップの配置を初期化（分散）します")
+    local offsetX = 0
+    local mapSpacing = 2000 -- マップ間の距離（2000スタッド）
+
+    for _, map in ipairs(maps:GetChildren()) do
+        if map:IsA("Model") or map:IsA("Folder") then
+            -- マップ内のすべてのパーツを移動
+            -- Folderの場合は直接CFrameを操作する
+            local movedCount = 0
+            for _, part in ipairs(map:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    -- 位置をX軸方向にずらす
+                    part.CFrame = part.CFrame + Vector3.new(offsetX, 0, 0)
+                    movedCount = movedCount + 1
+                end
+            end
+            if movedCount > 0 then
+                print(string.format("[RaceManager] コース '%s' の %d個のパーツを X: +%d 移動しました", map.Name, movedCount, offsetX))
+                offsetX = offsetX + mapSpacing
+            end
+        end
+    end
+end
+
+-- 初期化実行
+initializeMapPositions()
+
 -- レース開始の準備
 local function prepareRace(forceStart)
     forceStart = forceStart or false
@@ -119,7 +148,9 @@ local function startRace(forceStart)
         print("[RaceManager] StartArea位置: " .. tostring(startArea.Position))
         for i, player in raceState.players do
             local character = player.Character
-            if not character then character = player.CharacterAdded:Wait() end
+            if not character then
+                character = player.CharacterAdded:Wait()
+            end
             
             local hrp = character:WaitForChild("HumanoidRootPart", 10)
             if hrp then

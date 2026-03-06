@@ -63,26 +63,53 @@ if hrp then
     print("[CharacterSetup] マブルキャラクターを設定しました: " .. (player and player.Name or "Unknown") .. " (色: " .. colorIndex .. ")")
     print("[CharacterSetup] PrimaryPartを設定しました: " .. hrp.Name .. " (確認: " .. tostring(character.PrimaryPart == hrp) .. ")")
     print("[CharacterSetup] HumanoidRootPartをアンチャー解除しました")
-end
 
--- 不要なパーツを削除（Head, LeftLeg, RightLegなど）
-local partsToRemove = {"Head", "LeftLeg", "RightLeg", "LeftArm", "RightArm"}
-for _, partName in ipairs(partsToRemove) do
-    local part = character:FindFirstChild(partName)
-    if part then
-        part:Destroy()
+    local highlight = character:FindFirstChild("MarbleHighlight")
+    if not highlight then
+        highlight = Instance.new("Highlight")
+        highlight.Name = "MarbleHighlight"
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillColor = marbleColor
+        highlight.FillTransparency = 0.6
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineTransparency = 0
+        highlight.Adornee = character
+        highlight.Parent = character
     end
 end
 
--- Humanoidの設定
+-- Humanoidの設定（パーツを削除する前に首の必要性を無効化する！）
 local humanoid = character:WaitForChild("Humanoid")
 if humanoid then
+    humanoid.RequiresNeck = false -- Headを消しても死なないようにする
     humanoid.MaxHealth = 100
     humanoid.Health = 100
     humanoid.WalkSpeed = 0 -- マブルなのでWalkSpeedは使用しない
     humanoid.JumpPower = 0 -- マブルなのでJumpPowerは使用しない
     humanoid.PlatformStand = true -- マブルなので立たせない
     print("[CharacterSetup] Humanoidを設定しました: MaxHealth=" .. humanoid.MaxHealth)
+end
+
+-- 不要なパーツを透明・無効化する（Destroyすると死亡判定になるリスクがあるため）
+for _, child in ipairs(character:GetDescendants()) do
+    -- MarbleModel内のパーツは除外
+    local marbleModel = character:FindFirstChild("MarbleModel")
+    local isMarblePart = false
+    if marbleModel then
+        isMarblePart = child:IsDescendantOf(marbleModel) or child == marbleModel
+    end
+    
+    if not isMarblePart then
+        if child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
+            -- ルートパーツ以外のすべてのパーツを透明にして当たり判定オフ
+            child.Transparency = 1
+            child.CanCollide = false
+            child.Massless = true
+        elseif child:IsA("Decal") then
+            -- 顔などのデカールを透明にする
+            child.Transparency = 1
+        end
+    end
 end
 
 print("[CharacterSetup] マブルキャラクターの初期化が完了しました: " .. (player and player.Name or "Unknown"))

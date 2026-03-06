@@ -6,6 +6,20 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 
+local hrp = nil
+local humanoid = nil
+
+local function resolveCharacterParts(targetCharacter)
+    local activeCharacter = targetCharacter or character
+    if not activeCharacter then
+        return nil, nil
+    end
+
+    local rootPart = activeCharacter:FindFirstChild("HumanoidRootPart")
+    local activeHumanoid = activeCharacter:FindFirstChildOfClass("Humanoid")
+    return rootPart, activeHumanoid
+end
+
 -- キャラクターが完全にロードされるまで待機
 task.wait(0.5)
 
@@ -19,6 +33,7 @@ local updateRaceUIEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitFor
 updateRaceUIEvent.OnClientEvent:Connect(function(data)
     -- カウントダウン0またはrace_startedで操作を有効化
     if (data.type == "countdown" and data.value == 0) or data.type == "race_started" then
+        hrp, humanoid = resolveCharacterParts(character)
         if not isRacing then
             isRacing = true
             print("[MarbleControl] レース開始！操作を有効にします")
@@ -28,6 +43,26 @@ updateRaceUIEvent.OnClientEvent:Connect(function(data)
                 print("[MarbleControl] マーブル位置: " .. tostring(hrp.Position))
                 print("[MarbleControl] マーブルアンカー状態: " .. tostring(hrp.Anchored))
                 print("[MarbleControl] マーブルサイズ: " .. tostring(hrp.Size))
+                print("[MarbleControl] マーブル透過度: " .. tostring(hrp.Transparency))
+                -- キャラクター構成の詳細ログ
+                if character then
+                    local childNames = {}
+                    for _, c in ipairs(character:GetChildren()) do
+                        table.insert(childNames, c.Name)
+                    end
+                    print("[MarbleControl] character children: " .. table.concat(childNames, ", "))
+                    local marbleModel = character:FindFirstChild("MarbleModel")
+                    if marbleModel then
+                        print("[MarbleControl] MarbleModel found. Parts:")
+                        for _, d in ipairs(marbleModel:GetDescendants()) do
+                            if d:IsA("BasePart") then
+                                print("  - " .. d:GetFullName() .. " (Transparency=" .. tostring(d.Transparency) .. ", Parent=" .. tostring(d.Parent) .. ")")
+                            end
+                        end
+                    else
+                        print("[MarbleControl] MarbleModel not found under character yet")
+                    end
+                end
             end
             if humanoid then
                 print("[MarbleControl] マーブルHP: " .. tostring(humanoid.Health))
@@ -39,33 +74,56 @@ end)
 -- レース終了イベントを監視
 local raceEndEvent = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("RaceEnd")
 raceEndEvent.OnClientEvent:Connect(function(data)
+                        -- ローカル表示の確保: サーバ側で透明になっている場合、クライアント側で一時的に表示する
+                        if hrp then
+                            -- 強制的に表示（クライアント側で即時復元）
+                            if hrp.Transparency >= 1 then
+                                hrp.LocalTransparencyModifier = 0
+                                hrp.Transparency = 0
+                                print("[MarbleControl] HRP が透明だったため、LocalTransparencyModifier と Transparency をリセットしました")
+                            else
+                                hrp.LocalTransparencyModifier = 0
+                            end
+                            -- 既存の子パーツもローカルで強制表示（クライアント側で強制的に0にする）
+                            for _, part in ipairs(character:GetDescendants()) do
+                                if part:IsA("BasePart") then
+                                    part.LocalTransparencyModifier = 0
+                                    if part.Transparency >= 1 then
+                                        part.Transparency = 0
+                                    end
+                                end
+                            end
+                            -- MarbleModel が後から追加された場合に備えて監視を行う
+                            character.ChildAdded:Connect(function(child)
+                                if child and child.Name == "MarbleModel" then
+                                    print("[MarbleControl] MarbleModel が追加されました: " .. tostring(child))
+                                    for _, d in ipairs(child:GetDescendants()) do
+                                        if d:IsA("BasePart") then
+                                            d.LocalTransparencyModifier = 0
+                                            if d.Transparency >= 1 then
+                                                d.Transparency = 0
+                                            end
+                                        end
+                                    end
+                                end
+                            end)
+                        end
     isRacing = false
     print("[MarbleControl] レース終了！操作を無効にします")
 end)
 
 -- キャラクター初期化の待機（複数回試行）
-local hrp = nil
-local humanoid = nil
 local initAttempts = 0
 local maxInitAttempts = 30
 
 while (not hrp or not humanoid) and initAttempts < maxInitAttempts do
     initAttempts = initAttempts + 1
-    
-    -- HumanoidRootPartをマブルとして使用
+    hrp, humanoid = resolveCharacterParts(character)
     if not hrp then
-        hrp = character:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            hrp = character:WaitForChild("HumanoidRootPart", 2)
-        end
+        hrp = character:WaitForChild("HumanoidRootPart", 2)
     end
-    
-    -- Humanoidを取得
     if not humanoid then
-        humanoid = character:FindFirstChildOfClass("Humanoid")
-        if not humanoid then
-            humanoid = character:WaitForChildOfClass("Humanoid", 2)
-        end
+        humanoid = character:WaitForChildOfClass("Humanoid", 2)
     end
     
     -- まだ初期化されていない場合は待機
@@ -156,6 +214,14 @@ end)
 
 -- メイン更新ループ
 RunService.Heartbeat:Connect(function(deltaTime)
+    if not character or character.Parent == nil then
+        character = player.Character
+    end
+
+    if not hrp or not hrp.Parent then
+        hrp, humanoid = resolveCharacterParts(character)
+    end
+
     if not hrp then return end
     
     -- レース中のみ操作を有効にする
@@ -167,24 +233,40 @@ RunService.Heartbeat:Connect(function(deltaTime)
     
     -- 入力の取得
     moveInput = getMoveInput()
+
+    if moveInput.Magnitude == 0 and not isJumping then
+        local currentVelocity = hrp.AssemblyLinearVelocity
+        hrp.AssemblyLinearVelocity = Vector3.new(
+            currentVelocity.X * FRICTION,
+            currentVelocity.Y,
+            currentVelocity.Z * FRICTION
+        )
+        return
+    end
     
     -- カメラの向きを考慮した移動方向
     local camera = workspace.CurrentCamera
     local cameraCF = camera.CFrame
-    local moveDirection = Vector3.new(
+    local forward = Vector3.new(
         cameraCF.LookVector.X,
         0,
         cameraCF.LookVector.Z
-    ).Unit
-    
-    local rightDirection = Vector3.new(
+    )
+    local right = Vector3.new(
         cameraCF.RightVector.X,
         0,
         cameraCF.RightVector.Z
-    ).Unit
+    )
+
+    local moveDirection = forward.Magnitude > 0 and forward.Unit or Vector3.new(0, 0, -1)
+    
+    local rightDirection = right.Magnitude > 0 and right.Unit or Vector3.new(1, 0, 0)
     
     -- 入力ベクトルをカメラ基準に変換
-    local worldMoveInput = (rightDirection * moveInput.X + moveDirection * moveInput.Z)
+    local worldMoveInput = (rightDirection * moveInput.X - moveDirection * moveInput.Z)
+    if worldMoveInput.Magnitude > 0 then
+        worldMoveInput = worldMoveInput.Unit
+    end
     
     -- 現在の速度を取得
     local currentVelocity = hrp.AssemblyLinearVelocity
@@ -257,14 +339,13 @@ end)
 -- キャラクターがリスポーンしたときの処理
 player.CharacterAdded:Connect(function(newCharacter)
     character = newCharacter
+    isRacing = false
     
     -- HumanoidRootPartをマブルとして使用（タイムアウト付き）
-    hrp = character:FindFirstChild("HumanoidRootPart")
+    hrp, humanoid = resolveCharacterParts(character)
     if not hrp then
         hrp = character:WaitForChild("HumanoidRootPart", 10)
     end
-    
-    humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then
         humanoid = character:WaitForChildOfClass("Humanoid", 10)
     end

@@ -14,9 +14,9 @@ local DEFAULT_SKIN = "RedMarble"
 local function onPlayerAdded(player)
     -- キャラクターがロードされたときの処理
     player.CharacterAdded:Connect(function(character)
-        -- 既存のキャラクターをクリア
+        -- 不要な装飾品やデフォルトの部位をクリア
         for _, child in character:GetChildren() do
-            if child.Name ~= "Humanoid" and child.Name ~= "HumanoidRootPart" then
+            if child:IsA("Accessory") or child:IsA("Clothing") or child:IsA("ShirtGraphic") or child:IsA("CharacterMesh") then
                 child:Destroy()
             end
         end
@@ -39,15 +39,60 @@ local function onPlayerAdded(player)
             -- マブルをクローンしてキャラクターに追加
             local marble = marbleTemplate:Clone()
             marble.Name = "MarbleModel"
-            marble.Parent = character
+            print("[MarbleSpawner] クローンしたマーブルテンプレート: " .. tostring(marbleTemplate.Name) .. " -> MarbleModel")
             
-            -- キャラクターのHumanoidRootPartをマブルとして表示
+            -- まずCFrameを合わせる
             local hrp = character:FindFirstChild("HumanoidRootPart")
             if hrp then
+                character.PrimaryPart = hrp
+                marble:PivotTo(hrp.CFrame)
+                marble.Parent = character
+                print("[MarbleSpawner] MarbleModel をキャラクターに親付けしました: " .. tostring(player.Name))
+                
+                -- HRPとMarbleをWeldConstraintで結合
+                local marbleHrp = marble:FindFirstChild("HumanoidRootPart") or marble.PrimaryPart or marble:FindFirstChildWhichIsA("BasePart")
+                if marbleHrp then
+                    local weld = Instance.new("WeldConstraint")
+                    weld.Part0 = hrp
+                    weld.Part1 = marbleHrp
+                    weld.Parent = marbleHrp
+                    print("[MarbleSpawner] HRP と Marble の WeldConstraint を作成しました: " .. tostring(hrp) .. " <-> " .. tostring(marbleHrp))
+                    
+                    -- モデル側の剛体設定（重さなどをHRPに任せる）
+                    for _, part in ipairs(marble:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.Anchored = false
+                            part.Massless = true
+                            part.CanCollide = false
+                            if part.Name == "Marble" or part.Name == "HumanoidRootPart" then
+                                part.Transparency = 0
+                            end
+                        end
+                    end
+                end
+                
+                -- HRP自体もボール化して見えるようにする
                 hrp.Transparency = 0
+                print("[MarbleSpawner] HRP の Transparency を0に設定しました")
                 hrp.CanCollide = true
-                hrp.Size = Vector3.new(3, 3, 3) -- マブルと同じサイズに
-                hrp.Shape = Enum.PartType.Ball -- ボール形状に
+                hrp.Anchored = false
+                hrp.Size = Vector3.new(4, 4, 4) -- サイズ統一
+                hrp.Shape = Enum.PartType.Ball
+
+                local highlight = character:FindFirstChild("MarbleHighlight")
+                if not highlight then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = "MarbleHighlight"
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.FillColor = hrp.Color
+                    highlight.FillTransparency = 0.65
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.OutlineTransparency = 0
+                    highlight.Adornee = character
+                    highlight.Parent = character
+                end
+            else
+                marble.Parent = character
             end
             
             -- マブルモデル内のパーツも表示
